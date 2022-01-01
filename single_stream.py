@@ -1,4 +1,4 @@
-from transformers import BertModel, AutoTokenizer
+from transformers import BertModel, AutoTokenizer, BertConfig
 from models.vit import VisionTransformer
 import torch
 
@@ -11,12 +11,10 @@ def merge_words(lm_words, vm_words):
     # mode correctly. The last token in lm_words should
     # be the [SEP] token.
 
-    bs, *, dim = lm_words.shape
-
     merged = torch.cat([lm_words, vm_words], axis=0)
     return merged
 
-lm = BertModel('bert-base-uncased')
+lm = BertModel(BertConfig())
 tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased') 
 
 vm = VisionTransformer()
@@ -26,7 +24,8 @@ tokens = torch.Tensor(tokenizer.encode(text)).long()
 # Will produce a sequence of shape B * L * D.
 # B is the batch size, L is the sequence length (512 max)
 # and D is the embedding dimension (768 in BERT).
-lm_words = lm.embedding(tokens.unsqueeze(0))
+import ipdb; ipdb.set_trace()
+lm_words = lm.embeddings(tokens.unsqueeze(0))
 
 image = torch.randn(3, 224, 224).unsqueeze(0)
 # Will produce a sequence of shape B * L * D.
