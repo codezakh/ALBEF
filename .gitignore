@@ -2,3 +2,4 @@ json_pretrain
 __pycache__
 output
 .ipynb_checkpoints
+.vscode
