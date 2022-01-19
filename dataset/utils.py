@@ -48,9 +48,25 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+import random
 
 import utils
 from tqdm import tqdm
+
+def collate_safe(batch):
+    """
+    Drop any `None`-valued elements before batching.
+    This requires that the dataset's __getitem__ method returns
+    None when the data is corrupt or broken.
+    """
+    non_null_samples = list(filter(lambda x: x is not None, batch))
+    reconstituted_batch = []
+    for sample in batch:
+        if sample is None:
+            reconstituted_batch.append(random.choice(non_null_samples))
+        else:
+            reconstituted_batch.append(sample)
+    return torch.utils.data.dataloader.default_collate(reconstituted_batch)
 
 
 def vqa_eval(vqa, result_file, test_ques_path):

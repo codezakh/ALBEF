@@ -30,6 +30,7 @@ import utils
 from dataset import create_dataset, create_sampler, create_loader
 from scheduler import create_scheduler
 from optim import create_optimizer
+from dataset.utils import collate_safe
 
 
 def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config):
@@ -111,7 +112,7 @@ def main(args, config):
     else:
         samplers = [None]
 
-    data_loader = create_loader(datasets,samplers,batch_size=[config['batch_size']], num_workers=[4], is_trains=[True], collate_fns=[None])[0]
+    data_loader = create_loader(datasets,samplers,batch_size=[config['batch_size']], num_workers=[4], is_trains=[True], collate_fns=[collate_safe])[0]
 
     tokenizer = BertTokenizer.from_pretrained(args.text_encoder)
 
