@@ -1,6 +1,6 @@
 train_file:  ['/net/acadia10a/data/zkhan/coco-in-albef-format/train2017.json']
-val_file: '/net/acadia10a/data/zkhan/coco-in-albef-format/train2017.jsondata/coco_val.json'                
-test_file: '/net/acadia10a/data/zkhan/coco-in-albef-format/train2017.jsondata/coco_test.json'
+val_file: '/net/acadia10a/data/zkhan/coco-in-albef-format/train2017.json'                
+test_file: '/net/acadia10a/data/zkhan/coco-in-albef-format/train2017.json'
 image_root: '/net/acadia3a/data/acadia1a/samuel/coco17/train2017'
 
 bert_config: 'configs/config_bert.json'
