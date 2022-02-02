@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from models.model_retrieval import ALBEF
 from models.vit import interpolate_pos_embed
@@ -85,7 +86,7 @@ def evaluation(model, data_loader, tokenizer, device, config):
     text_feats = []
     text_embeds = []  
     text_atts = []
-    for i in range(0, num_text, text_bs):
+    for i in tqdm(range(0, num_text, text_bs)):
         text = texts[i: min(num_text, i+text_bs)]
         text_input = tokenizer(text, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device) 
         text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
@@ -100,7 +101,7 @@ def evaluation(model, data_loader, tokenizer, device, config):
     
     image_feats = []
     image_embeds = []
-    for image, img_id in data_loader: 
+    for image, img_id in tqdm(data_loader): 
         image = image.to(device) 
         image_feat = model.visual_encoder(image)        
         image_embed = model.vision_proj(image_feat[:,0,:])            
@@ -222,6 +223,7 @@ def itm_eval(scores_i2t, scores_t2i, txt2img, img2txt):
 
 
 def main(args, config):
+    import ipdb; ipdb.set_trace()
     utils.init_distributed_mode(args)    
     
     device = torch.device(args.device)
