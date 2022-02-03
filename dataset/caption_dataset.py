@@ -6,6 +6,7 @@ from torch.utils.data import Dataset
 
 from PIL import Image
 from PIL import ImageFile
+from tqdm import tqdm
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 Image.MAX_IMAGE_PIXELS = None
 
@@ -23,7 +24,7 @@ class re_train_dataset(Dataset):
         self.img_ids = {}   
         
         n = 0
-        for ann in self.ann:
+        for ann in tqdm(self.ann):
             img_id = ann['image_id']
             if img_id not in self.img_ids.keys():
                 self.img_ids[img_id] = n
@@ -59,7 +60,7 @@ class re_eval_dataset(Dataset):
         self.img2txt = {}
         
         txt_id = 0
-        for img_id, ann in enumerate(self.ann):
+        for img_id, ann in enumerate(tqdm(self.ann)):
             self.image.append(ann['image'])
             self.img2txt[img_id] = []
             for i, caption in enumerate(ann['caption']):
