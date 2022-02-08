@@ -1,5 +1,9 @@
 train_file: [
-  "/net/acadia10a/data/zkhan/cc12m-json/3m.json"
+  "/net/acadia10a/data/zkhan/coco2017/pretrain-pairs.json",
+  "/net/acadia10a/data/zkhan/visual-genome-sandbox/visual-genome-pairs.json",
+  "/net/acadia10a/data/zkhan/cc3m/cc3m-train-pairs.json",
+  "/net/acadia10a/data/zkhan/cc3m/cc3m-val-pairs.json",
+  "/net/acadia10a/data/zkhan/sbu-captions/sbu-pretrain-pairs.json",
                ]
 # each train_file (json) contains a python list where each item is {'image': img_path, 'caption': text or list_of_text }               
 bert_config: 'configs/config_bert.json'
@@ -7,7 +11,7 @@ bert_config: 'configs/config_bert.json'
 image_res: 256
 vision_width: 768
 embed_dim: 256
-batch_size: 32
+batch_size: 64
 temp: 0.07
 mlm_probability: 0.15
 queue_size: 65536
