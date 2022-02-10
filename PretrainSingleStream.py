@@ -69,6 +69,9 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
         loss = loss_mlm + loss_ita + loss_itm    
           
         loss.backward()
+        for name, param in model.named_parameters():
+            if param.grad is None and param.requires_grad:
+                print(name)
         optimizer.step()    
         
         metric_logger.update(loss_mlm=loss_mlm.item())
@@ -86,6 +89,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     
     
 def main(args, config):
+    torch.autograd.set_detect_anomaly(True)
     utils.init_distributed_mode(args)    
     
     device = torch.device(args.device)

@@ -1,7 +1,7 @@
 from functools import partial
 from models.vit import VisionTransformer, interpolate_pos_embed
 # from models.xbert import BertConfig, BertForMaskedLM
-from models.xbert import BertConfig, BertModel
+from models.xbert import BertConfig, BertModel, BertForMaskedLM
 from typing import Dict
 
 import torch
@@ -44,9 +44,9 @@ class ALBEF(nn.Module):
         bert_config = BertConfig.from_json_file(config['bert_config'])
         
         # self.text_encoder = BertForMaskedLM.from_pretrained(text_encoder, config=bert_config)      
-        self.text_encoder = BertModel.from_pretrained(text_encoder, config=bert_config)      
-        for param in self.text_encoder.parameters():
-            param.requires_grad = False
+        self.text_encoder = BertModel.from_pretrained(text_encoder, config=bert_config, add_pooling_layer=False)      
+        # for param in self.text_encoder.embeddings.word_embeddings.parameters():
+        #     param.requires_grad = False
 
         text_width = self.text_encoder.config.hidden_size
         self.vision_proj = nn.Linear(vision_width, embed_dim)
@@ -84,7 +84,9 @@ class ALBEF(nn.Module):
 
 
     def make_sentence_pair(self, text_token_ids, text_attn_mask, image_embeds, image_atts, device):
-        text_token_ids[:, 0] = self.tokenizer.sep_token_id 
+        text_token_ids = text_token_ids.clone()
+        with torch.no_grad():
+            text_token_ids[:, 0] = self.tokenizer.sep_token_id 
         # Create the [CLS] prefix for the visual token. 
         # prefix = torch.zeros(image_embeds.shape[0], 1).to(image.device) * self.tokenizer.cls_token_id
         # prefix = prefix.long()
@@ -100,7 +102,8 @@ class ALBEF(nn.Module):
         # and the second sentence is 1. To achieve this, we can simply concatenate the attention mask
         # of the text with a zero tensor.
         text_token_type_ids = text_attn_mask.clone()
-        text_token_type_ids[:, 0] = 0 # the [SEP] between the sentences is considered as sentence B.
+        with torch.no_grad():
+            text_token_type_ids[:, 0] = 0 # the [SEP] between the sentences is considered as sentence B.
         token_type_ids = torch.cat([torch.zeros_like(image_atts).to(device), text_token_type_ids], dim=1)
         return mm_model_input, imtext_attention_mask, token_type_ids
 
