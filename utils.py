@@ -256,3 +256,13 @@ def init_distributed_mode(args):
                                          world_size=args.world_size, rank=args.rank)
     torch.distributed.barrier()
     setup_for_distributed(args.rank == 0)
+
+def calculate_gradient_norm(model):
+    total_norm = 0
+    parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
+    for p in parameters:
+        param_norm = p.grad.detach().data.norm(2)
+        total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
+                             

@@ -37,6 +37,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=50, fmt='{value:.6f}'))
     metric_logger.add_meter('loss_itm', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
+    metric_logger.add_meter("grad_norm", utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     
     header = 'Train Epoch: [{}]'.format(epoch)
     print_freq = 50   
@@ -64,12 +65,11 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
         loss = loss_itm    
           
         loss.backward()
-        for name, param in model.named_parameters():
-            if param.grad is None and param.requires_grad:
-                print(name)
+        grad_norm = utils.calculate_gradient_norm(model)
         optimizer.step()    
         
         metric_logger.update(loss_itm=loss_itm.item())
+        metric_logger.update(grad_norm=grad_norm)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])         
         
         if epoch==0 and i%step_size==0 and i<=warmup_iterations: 
@@ -109,7 +109,7 @@ def main(args, config):
     else:
         samplers = [None]
 
-    data_loader = create_loader(datasets,samplers,batch_size=[config['batch_size']], num_workers=[16], is_trains=[True], collate_fns=[collate_safe])[0]
+    data_loader = create_loader(datasets,samplers,batch_size=[config['batch_size']], num_workers=[config['num_workers']], is_trains=[True], collate_fns=[collate_safe])[0]
 
     tokenizer = BertTokenizer.from_pretrained(args.text_encoder)
 
