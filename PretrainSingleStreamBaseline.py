@@ -109,7 +109,7 @@ def main(args, config):
     else:
         samplers = [None]
 
-    data_loader = create_loader(datasets,samplers,batch_size=[config['batch_size']], num_workers=[8], is_trains=[True], collate_fns=[collate_safe])[0]
+    data_loader = create_loader(datasets,samplers,batch_size=[config['batch_size']], num_workers=[16], is_trains=[True], collate_fns=[collate_safe])[0]
 
     tokenizer = BertTokenizer.from_pretrained(args.text_encoder)
 
