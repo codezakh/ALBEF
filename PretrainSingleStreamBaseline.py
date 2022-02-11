@@ -17,6 +17,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
+import wandb
 
 # from models.single_stream_pretrain import ALBEF
 from models.single_stream.baseline_pretrain import ALBEF
@@ -30,7 +31,7 @@ from optim import create_optimizer
 from dataset.utils import collate_safe
 
 
-def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config):
+def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config, wandb_logger=None):
     # train
     model.train()  
     
@@ -67,6 +68,17 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
         loss.backward()
         grad_norm = utils.calculate_gradient_norm(model)
         optimizer.step()    
+
+        if i % print_freq == 0:
+            if utils.is_main_process() and wandb_logger:
+                wandb_logger.log(
+                    data={
+                        'loss_itm': loss_itm.item(),
+                        'grad_norm': grad_norm,
+                        'lr': optimizer.param_groups[0]['lr']
+                    }
+                )
+
         
         metric_logger.update(loss_itm=loss_itm.item())
         metric_logger.update(grad_norm=grad_norm)
@@ -116,6 +128,13 @@ def main(args, config):
     #### Model #### 
     print("Creating model")
     model = ALBEF(config=config, text_encoder=args.text_encoder, tokenizer=tokenizer, init_deit=True)
+
+    if utils.is_main_process():
+        print('Is main process, creating W&B logger.')
+        wandb_logger = wandb.init(project="vision-language-alignment", entity="zakh", config=config)
+        wandb_logger.watch(model, log_graph=False)
+    else:
+        None
     
     model = model.to(device)   
         
@@ -153,7 +172,7 @@ def main(args, config):
         if epoch>0:
             lr_scheduler.step(epoch+warmup_steps)  
             
-        train_stats = train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler, config) 
+        train_stats = train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler, config, wandb_logger=wandb_logger) 
         if utils.is_main_process():  
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch,
