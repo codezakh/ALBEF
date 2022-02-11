@@ -134,7 +134,7 @@ def main(args, config):
         wandb_logger = wandb.init(project="vision-language-alignment", entity="zakh", config=config)
         wandb_logger.watch(model, log_graph=False)
     else:
-        None
+        wandb_logger = None
     
     model = model.to(device)   
         
