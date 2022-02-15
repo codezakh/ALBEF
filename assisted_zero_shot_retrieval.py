@@ -1,4 +1,5 @@
 import argparse
+from operator import mod
 import os
 import ruamel.yaml as yaml
 import numpy as np
@@ -16,8 +17,8 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from models.model_retrieval import ALBEF
-from models.vit import interpolate_pos_embed
+from models.single_stream_retrieval import ALBEF
+from models.vit import Attention, interpolate_pos_embed
 from models.tokenization_bert import BertTokenizer
 
 import utils
@@ -86,18 +87,21 @@ def evaluation(model, data_loader, tokenizer, device, config):
     text_feats = []
     text_embeds = []  
     text_atts = []
+    text_inputs = []
     for i in tqdm(range(0, num_text, text_bs)):
         text = texts[i: min(num_text, i+text_bs)]
         text_input = tokenizer(text, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device) 
-        text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
-        text_feat = text_output.last_hidden_state
-        text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
-        text_embeds.append(text_embed)   
-        text_feats.append(text_feat)
+        text_inputs.append(text_input)
+        # text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
+        # text_feat = text_output.last_hidden_state
+        # text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
+        # text_embeds.append(text_embed)   
+        # text_feats.append(text_feat)
         text_atts.append(text_input.attention_mask)
-    text_embeds = torch.cat(text_embeds,dim=0)
-    text_feats = torch.cat(text_feats,dim=0)
+    # text_embeds = torch.cat(text_embeds,dim=0)
+    # text_feats = torch.cat(text_feats,dim=0)
     text_atts = torch.cat(text_atts,dim=0)
+    text_tokens = torch.cat([_.input_ids for _ in text_inputs], dim=0)
     
     image_feats = []
     image_embeds = []
@@ -113,7 +117,8 @@ def evaluation(model, data_loader, tokenizer, device, config):
     image_feats = torch.cat(image_feats,dim=0)
     image_embeds = torch.cat(image_embeds,dim=0)
     
-    sims_matrix = image_embeds @ text_embeds.t()
+    # sims_matrix = image_embeds @ text_embeds.t()
+    sims_matrix = torch.Tensor(np.load(config['load_sims_from'])).to(device)
     score_matrix_i2t = torch.full((len(data_loader.dataset.image),len(texts)),-100.0).to(device)
     
     num_tasks = utils.get_world_size()
@@ -122,18 +127,33 @@ def evaluation(model, data_loader, tokenizer, device, config):
     start = rank*step
     end = min(sims_matrix.size(0),start+step)
 
+    # image_atts = torch.ones(image_embeds.size()[:-1], dtype=torch.long).to(device)
     for i,sims in enumerate(metric_logger.log_every(sims_matrix[start:end], 50, header)): 
         topk_sim, topk_idx = sims.topk(k=config['k_test'], dim=0)
-
         encoder_output = image_feats[start+i].repeat(config['k_test'],1,1)
-        encoder_att = torch.ones(encoder_output.size()[:-1],dtype=torch.long).to(device)
-        output = model.text_encoder(encoder_embeds = text_feats[topk_idx], 
-                                    attention_mask = text_atts[topk_idx],
-                                    encoder_hidden_states = encoder_output,
-                                    encoder_attention_mask = encoder_att,                             
-                                    return_dict = True,
-                                    mode = 'fusion'
-                                   )
+        image_atts = torch.ones(encoder_output.shape[:-1], dtype=torch.long).to(device)
+        words, att_mask, token_type_ids = model.make_sentence_pair(
+            text_tokens[topk_idx],
+            text_atts[topk_idx],
+            encoder_output,
+            image_atts,
+            device
+        )
+        # encoder_att = torch.ones(encoder_output.size()[:-1],dtype=torch.long).to(device)
+        # output = model.text_encoder(encoder_embeds = text_feats[topk_idx], 
+        #                             attention_mask = text_atts[topk_idx],
+        #                             encoder_hidden_states = encoder_output,
+        #                             encoder_attention_mask = encoder_att,                             
+        #                             return_dict = True,
+        #                             mode = 'fusion'
+        #                            )
+        output = model.text_encoder(
+            inputs_embeds=words,
+            attention_mask=att_mask,
+            token_type_ids=token_type_ids,
+            return_dict=True,
+            mode='text'
+        )
         score = model.itm_head(output.last_hidden_state[:,0,:])[:,1]
         score_matrix_i2t[start+i,topk_idx] = score
         
@@ -145,17 +165,35 @@ def evaluation(model, data_loader, tokenizer, device, config):
     end = min(sims_matrix.size(0),start+step)    
     
     for i,sims in enumerate(metric_logger.log_every(sims_matrix[start:end], 50, header)): 
-        
         topk_sim, topk_idx = sims.topk(k=config['k_test'], dim=0)
+        # Grab the top k most similar images for each text sample.
         encoder_output = image_feats[topk_idx]
-        encoder_att = torch.ones(encoder_output.size()[:-1],dtype=torch.long).to(device)
-        output = model.text_encoder(encoder_embeds = text_feats[start+i].repeat(config['k_test'],1,1), 
-                                    attention_mask = text_atts[start+i].repeat(config['k_test'],1),
-                                    encoder_hidden_states = encoder_output,
-                                    encoder_attention_mask = encoder_att,                             
-                                    return_dict = True,
-                                    mode = 'fusion'
-                                   )
+        # Create the attention mask. It should just have a _one_ for every patch
+        # embedding in the encoder output.
+        image_atts = torch.ones(encoder_output.shape[:-1], dtype=torch.long).to(device)
+        # encoder_att = torch.ones(encoder_output.size()[:-1],dtype=torch.long).to(device)
+        words, att_mask, token_type_ids = model.make_sentence_pair(
+            text_tokens[start+i].repeat(config['k_test'],1, 1).squeeze(),
+            text_atts[start+i].repeat(config['k_test'],1, 1).squeeze(),
+            encoder_output,
+            image_atts,
+            device
+        )
+        output = model.text_encoder(
+            inputs_embeds=words,
+            attention_mask=att_mask,
+            token_type_ids=token_type_ids,
+            return_dict=True,
+            mode='text'
+        )
+        # output = model.text_encoder(encoder_embeds = text_feats[start+i].repeat(config['k_test'],1,1), 
+        #                             attention_mask = text_atts[start+i].repeat(config['k_test'],1),
+        #                             encoder_hidden_states = encoder_output,
+        #                             encoder_attention_mask = encoder_att,                             
+        #                             return_dict = True,
+        #                             mode = 'fusion'
+        #                            )
+
         score = model.itm_head(output.last_hidden_state[:,0,:])[:,1]
         score_matrix_t2i[start+i,topk_idx] = score
 
@@ -264,8 +302,9 @@ def main(args, config):
         # reshape positional embedding to accomodate for image resolution change
         pos_embed_reshaped = interpolate_pos_embed(state_dict['visual_encoder.pos_embed'],model.visual_encoder)         
         state_dict['visual_encoder.pos_embed'] = pos_embed_reshaped
-        m_pos_embed_reshaped = interpolate_pos_embed(state_dict['visual_encoder_m.pos_embed'],model.visual_encoder_m)   
-        state_dict['visual_encoder_m.pos_embed'] = m_pos_embed_reshaped 
+        if state_dict.get('visual_encoder_m.pos_embed', None) is not None:
+            m_pos_embed_reshaped = interpolate_pos_embed(state_dict['visual_encoder_m.pos_embed'],model.visual_encoder_m)   
+            state_dict['visual_encoder_m.pos_embed'] = m_pos_embed_reshaped 
         
         for key in list(state_dict.keys()):
             if 'bert' in key:
@@ -301,45 +340,22 @@ def main(args, config):
         if not args.evaluate:
             if args.distributed:
                 train_loader.sampler.set_epoch(epoch)
-            train_stats = train(model, train_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler, config)  
             
-        score_val_i2t, score_val_t2i, = evaluation(model_without_ddp, val_loader, tokenizer, device, config)
         score_test_i2t, score_test_t2i = evaluation(model_without_ddp, test_loader, tokenizer, device, config)
     
         if utils.is_main_process():  
       
-            val_result = itm_eval(score_val_i2t, score_val_t2i, val_loader.dataset.txt2img, val_loader.dataset.img2txt)  
-            print(val_result)
             test_result = itm_eval(score_test_i2t, score_test_t2i, test_loader.dataset.txt2img, test_loader.dataset.img2txt)    
             print(test_result)
             
             if args.evaluate:                
-                log_stats = {**{f'val_{k}': v for k, v in val_result.items()},
+                log_stats = {
                              **{f'test_{k}': v for k, v in test_result.items()},                  
                              'epoch': epoch,
                             }
                 with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
                     f.write(json.dumps(log_stats) + "\n")     
-            else:
-                log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                             **{f'val_{k}': v for k, v in val_result.items()},
-                             **{f'test_{k}': v for k, v in test_result.items()},                  
-                             'epoch': epoch,
-                            }
-                with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
-                    f.write(json.dumps(log_stats) + "\n")   
                     
-                if val_result['r_mean']>best:
-                    save_obj = {
-                        'model': model_without_ddp.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'lr_scheduler': lr_scheduler.state_dict(),
-                        'config': config,
-                        'epoch': epoch,
-                    }
-                    torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth'))  
-                    best = val_result['r_mean']    
-                    best_epoch = epoch
                     
         if args.evaluate: 
             break
@@ -350,7 +366,7 @@ def main(args, config):
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    print('Training time {}'.format(total_time_str)) 
+    print('Time {}'.format(total_time_str)) 
 
     if utils.is_main_process():   
         with open(os.path.join(args.output_dir, "log.txt"),"a") as f:

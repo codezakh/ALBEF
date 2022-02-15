@@ -25,50 +25,6 @@ from dataset import create_dataset, create_sampler, create_loader
 from scheduler import create_scheduler
 from optim import create_optimizer
 
-
-def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config):
-    # train
-    model.train()  
-    
-    metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    metric_logger.add_meter('loss_itm', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
-    metric_logger.add_meter('loss_ita', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
-    header = 'Train Epoch: [{}]'.format(epoch)
-    print_freq = 50
-    step_size = 100
-    warmup_iterations = warmup_steps*step_size  
-    
-    for i,(image, text, idx) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
-        image = image.to(device,non_blocking=True)   
-        idx = idx.to(device,non_blocking=True)   
-        text_input = tokenizer(text, padding='longest', max_length=30, return_tensors="pt").to(device)  
-            
-        if epoch>0 or not config['warm_up']:
-            alpha = config['alpha']
-        else:
-            alpha = config['alpha']*min(1,i/len(data_loader))
-
-        loss_ita, loss_itm = model(image, text_input,alpha=alpha, idx=idx)                  
-        loss = loss_ita + loss_itm
-        
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()    
-        
-        metric_logger.update(loss_itm=loss_itm.item())
-        metric_logger.update(loss_ita=loss_ita.item())
-        metric_logger.update(lr=optimizer.param_groups[0]["lr"])
-        if epoch==0 and i%step_size==0 and i<=warmup_iterations: 
-            scheduler.step(i//step_size)         
-        
-    # gather the stats from all processes
-    metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger.global_avg())     
-    return {k: "{:.3f}".format(meter.global_avg) for k, meter in metric_logger.meters.items()}  
-
-
-
 @torch.no_grad()
 def evaluation(model, data_loader, tokenizer, device, config):
     # test
@@ -114,6 +70,9 @@ def evaluation(model, data_loader, tokenizer, device, config):
     image_embeds = torch.cat(image_embeds,dim=0)
     
     sims_matrix = image_embeds @ text_embeds.t()
+    sims_save_path = Path(config['save_sims']) / 'sim_matrix.npy'
+    sims_save_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(sims_save_path, sims_matrix.cpu().numpy())
     score_matrix_i2t = torch.full((len(data_loader.dataset.image),len(texts)),-100.0).to(device)
     
     num_tasks = utils.get_world_size()
@@ -292,54 +251,32 @@ def main(args, config):
     
     max_epoch = config['schedular']['epochs']
     warmup_steps = config['schedular']['warmup_epochs']
-    best = 0
-    best_epoch = 0
 
-    print("Start training")
     start_time = time.time()    
     for epoch in range(0, max_epoch):
-        if not args.evaluate:
-            if args.distributed:
-                train_loader.sampler.set_epoch(epoch)
-            train_stats = train(model, train_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler, config)  
             
-        score_val_i2t, score_val_t2i, = evaluation(model_without_ddp, val_loader, tokenizer, device, config)
         score_test_i2t, score_test_t2i = evaluation(model_without_ddp, test_loader, tokenizer, device, config)
     
         if utils.is_main_process():  
       
-            val_result = itm_eval(score_val_i2t, score_val_t2i, val_loader.dataset.txt2img, val_loader.dataset.img2txt)  
-            print(val_result)
             test_result = itm_eval(score_test_i2t, score_test_t2i, test_loader.dataset.txt2img, test_loader.dataset.img2txt)    
             print(test_result)
             
             if args.evaluate:                
-                log_stats = {**{f'val_{k}': v for k, v in val_result.items()},
+                log_stats = {
                              **{f'test_{k}': v for k, v in test_result.items()},                  
                              'epoch': epoch,
                             }
                 with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
                     f.write(json.dumps(log_stats) + "\n")     
             else:
-                log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                             **{f'val_{k}': v for k, v in val_result.items()},
+                log_stats = {
                              **{f'test_{k}': v for k, v in test_result.items()},                  
                              'epoch': epoch,
                             }
                 with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
                     f.write(json.dumps(log_stats) + "\n")   
                     
-                if val_result['r_mean']>best:
-                    save_obj = {
-                        'model': model_without_ddp.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'lr_scheduler': lr_scheduler.state_dict(),
-                        'config': config,
-                        'epoch': epoch,
-                    }
-                    torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth'))  
-                    best = val_result['r_mean']    
-                    best_epoch = epoch
                     
         if args.evaluate: 
             break
@@ -350,11 +287,8 @@ def main(args, config):
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    print('Training time {}'.format(total_time_str)) 
+    print('Time {}'.format(total_time_str)) 
 
-    if utils.is_main_process():   
-        with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
-            f.write("best epoch: %d"%best_epoch)               
 
             
 if __name__ == '__main__':

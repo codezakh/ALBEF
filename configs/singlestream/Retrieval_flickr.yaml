@@ -4,6 +4,7 @@ val_file: '/net/acadia10a/data/zkhan/flickr30k/flickr30-test-pairs.json'
 test_file: '/net/acadia10a/data/zkhan/flickr30k/flickr30-test-pairs.json'
 image_root: '/net/acadia10a/data/zkhan/flickr30k/flickr30k-images'  
 bert_config: 'configs/config_bert_singlestream.json'
+load_sims_from: '/net/acadia10a/data/zkhan/albef-sims/sim_matrix.npy'
 
 image_res: 256
 batch_size_train: 32
@@ -14,7 +15,7 @@ momentum: 0.995
 vision_width: 768
 embed_dim: 256
 temp: 0.07
-k_test: 1000
+k_test: 128
 
 alpha: 0.4
 distill: True
