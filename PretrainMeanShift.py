@@ -21,6 +21,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
+import wandb
 
 from models.pretrain_meanshift import ALBEF
 from models.vit import interpolate_pos_embed
@@ -33,7 +34,7 @@ from optim import create_optimizer
 from dataset.utils import collate_safe
 
 
-def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config):
+def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config, wandb_logger=None):
     # train
     model.train()  
     
@@ -42,6 +43,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     metric_logger.add_meter('loss_mlm', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
     metric_logger.add_meter('loss_ita', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
     metric_logger.add_meter('loss_itm', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
+    metric_logger.add_meter("grad_norm", utils.SmoothedValue(window_size=50, fmt='{value:.6f}'))
     
     header = 'Train Epoch: [{}]'.format(epoch)
     print_freq = 50   
@@ -69,11 +71,25 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
         loss = loss_mlm + loss_ita + loss_itm    
           
         loss.backward()
+        grad_norm = utils.calculate_gradient_norm(model)
         optimizer.step()    
+
+        if i % print_freq == 0:
+            if utils.is_main_process() and wandb_logger:
+                wandb_logger.log(
+                    data={
+                        'loss_itm': loss_itm.item(),
+                        'loss_mlm': loss_mlm.item(),
+                        'loss_ita': loss_ita.item(),
+                        'grad_norm': grad_norm,
+                        'lr': optimizer.param_groups[0]['lr']
+                    }
+                )
         
         metric_logger.update(loss_mlm=loss_mlm.item())
         metric_logger.update(loss_ita=loss_ita.item())
         metric_logger.update(loss_itm=loss_itm.item())
+        metric_logger.update(grad_norm=grad_norm)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])         
         
         if epoch==0 and i%step_size==0 and i<=warmup_iterations: 
@@ -119,6 +135,14 @@ def main(args, config):
     #### Model #### 
     print("Creating model")
     model = ALBEF(config=config, text_encoder=args.text_encoder, tokenizer=tokenizer, init_deit=True)
+
+    disable_wandb = config.get('disable_wandb', False) # Enable by default.
+    if utils.is_main_process() and not disable_wandb:
+        print('Is main process, creating W&B logger.')
+        wandb_logger = wandb.init(project="vision-language-alignment", entity="zakh", config=config)
+        wandb_logger.watch(model, log_graph=False)
+    else:
+        wandb_logger = None
     
     model = model.to(device)   
         
