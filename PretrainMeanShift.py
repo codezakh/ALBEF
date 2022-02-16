@@ -41,7 +41,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=50, fmt='{value:.6f}'))
     metric_logger.add_meter('loss_mlm', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
-    metric_logger.add_meter('loss_ita', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
+    metric_logger.add_meter('loss_meanshift', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
     metric_logger.add_meter('loss_itm', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
     metric_logger.add_meter("grad_norm", utils.SmoothedValue(window_size=50, fmt='{value:.6f}'))
     
@@ -80,14 +80,14 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
                     data={
                         'loss_itm': loss_itm.item(),
                         'loss_mlm': loss_mlm.item(),
-                        'loss_ita': loss_ita.item(),
+                        'loss_meanshift': loss_ita.item(),
                         'grad_norm': grad_norm,
                         'lr': optimizer.param_groups[0]['lr']
                     }
                 )
         
         metric_logger.update(loss_mlm=loss_mlm.item())
-        metric_logger.update(loss_ita=loss_ita.item())
+        metric_logger.update(loss_meanshift=loss_ita.item())
         metric_logger.update(loss_itm=loss_itm.item())
         metric_logger.update(grad_norm=grad_norm)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])         
@@ -180,7 +180,7 @@ def main(args, config):
         if epoch>0:
             lr_scheduler.step(epoch+warmup_steps)  
             
-        train_stats = train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler, config) 
+        train_stats = train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler, config, wandb_logger=wandb_logger) 
         if utils.is_main_process():  
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch,
