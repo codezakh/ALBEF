@@ -89,11 +89,11 @@ class ALBEF(nn.Module):
         with torch.no_grad():
             self.temp.clamp_(0.001,0.5)
         
-        image_embeds = self.visual_encoder(image) 
-        image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(image.device)
+        image_patch_embeds = self.visual_encoder(image) 
+        image_atts = torch.ones(image_patch_embeds.size()[:-1],dtype=torch.long).to(image.device)
         # The mode is red herring. It just needs to be set to something besides "multimodal"
         # to operate in self-attention mode. We want self-attention mode for unimodal processing.
-        image_embeds = self.text_encoder.bert(inputs_embeds=image_embeds, attention_mask=image_atts, mode='image',
+        image_embeds = self.text_encoder.bert(inputs_embeds=image_patch_embeds, attention_mask=image_atts, mode='image',
             return_dict=True).last_hidden_state
         image_feat = F.normalize(self.vision_proj(image_embeds[:,0,:]),dim=-1)  
 
@@ -105,9 +105,9 @@ class ALBEF(nn.Module):
         # get momentum features
         with torch.no_grad():
             self._momentum_update()
-            image_embeds_m = self.visual_encoder_m(image) 
+            image_patch_embeds_m = self.visual_encoder_m(image) 
             image_embeds_m = self.text_encoder_m.bert(
-                inputs_embeds=image_embeds_m, attention_mask=image_atts, mode='image',
+                inputs_embeds=image_patch_embeds_m, attention_mask=image_atts, mode='image',
                 return_dict=True
             ).last_hidden_state
             image_feat_m = F.normalize(self.vision_proj_m(image_embeds_m[:,0,:]),dim=-1)  
@@ -140,7 +140,7 @@ class ALBEF(nn.Module):
         # forward the positve image-text pair
         output_pos = self.text_encoder.bert(text.input_ids, 
                                         attention_mask = text.attention_mask,
-                                        encoder_hidden_states = image_embeds,
+                                        encoder_hidden_states = image_patch_embeds,
                                         encoder_attention_mask = image_atts,      
                                         return_dict = True,
                                         mode = 'multimodal'
@@ -154,11 +154,11 @@ class ALBEF(nn.Module):
             weights_t2i.fill_diagonal_(0)
 
         # select a negative image for each text
-        image_embeds_neg = []    
+        image_patch_embeds_neg = []    
         for b in range(bs):
             neg_idx = torch.multinomial(weights_t2i[b], 1).item()
-            image_embeds_neg.append(image_embeds[neg_idx])
-        image_embeds_neg = torch.stack(image_embeds_neg,dim=0)   
+            image_patch_embeds_neg.append(image_patch_embeds[neg_idx])
+        image_patch_embeds_neg = torch.stack(image_patch_embeds_neg,dim=0)   
 
         # select a negative text for each image
         # text_embeds_neg = []
@@ -177,12 +177,12 @@ class ALBEF(nn.Module):
         text_atts_all = torch.cat([text.attention_mask, text_atts_neg],dim=0)     
         text_tokens_all = torch.cat([text.input_ids, text_tokens_neg], dim=0)
 
-        image_embeds_all = torch.cat([image_embeds_neg,image_embeds],dim=0)
+        image_patch_embeds_all = torch.cat([image_patch_embeds_neg,image_patch_embeds],dim=0)
         image_atts_all = torch.cat([image_atts,image_atts],dim=0)
 
         output_neg = self.text_encoder.bert(text_tokens_all, 
                                         attention_mask = text_atts_all,
-                                        encoder_hidden_states = image_embeds_all,
+                                        encoder_hidden_states = image_patch_embeds_all,
                                         encoder_attention_mask = image_atts_all,      
                                         return_dict = True,
                                         mode='multimodal',
@@ -206,7 +206,7 @@ class ALBEF(nn.Module):
         with torch.no_grad():
             logits_m = self.text_encoder_m(input_ids, 
                                            attention_mask = text.attention_mask,
-                                           encoder_hidden_states = image_embeds_m,
+                                           encoder_hidden_states = image_patch_embeds_m,
                                            encoder_attention_mask = image_atts,      
                                            return_dict = True,
                                            return_logits = True,
@@ -214,7 +214,7 @@ class ALBEF(nn.Module):
                                           )    
         mlm_output = self.text_encoder(input_ids, 
                                        attention_mask = text.attention_mask,
-                                       encoder_hidden_states = image_embeds,
+                                       encoder_hidden_states = image_patch_embeds,
                                        encoder_attention_mask = image_atts,      
                                        return_dict = True,
                                        labels = labels,   
