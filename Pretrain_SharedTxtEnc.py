@@ -23,7 +23,7 @@ import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 import wandb
 
-from models.model_pretrain_shared_txt_enc import ALBEF
+from models.singlestream_v2.baseline import ALBEF
 from models.vit import interpolate_pos_embed
 from models.tokenization_bert import BertTokenizer
 
