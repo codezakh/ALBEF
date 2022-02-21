@@ -60,10 +60,12 @@ def evaluation(model, data_loader, tokenizer, device, config):
     
     image_feats = []
     image_embeds = []
+    image_patch_feats = []
     for image, img_id in tqdm(data_loader): 
         image = image.to(device) 
-        image_feat = model.visual_encoder(image)        
-        image_feat = model.text_encoder.bert(inputs_embeds=image_feat, mode='image',
+        image_patch_feat = model.visual_encoder(image)        
+        image_patch_feats.append(image_patch_feat)
+        image_feat = model.text_encoder.bert(inputs_embeds=image_patch_feat, mode='image',
             return_dict=True).last_hidden_state
         image_embed = model.vision_proj(image_feat[:,0,:])            
         image_embed = F.normalize(image_embed,dim=-1)      
@@ -72,6 +74,7 @@ def evaluation(model, data_loader, tokenizer, device, config):
      
     image_feats = torch.cat(image_feats,dim=0)
     image_embeds = torch.cat(image_embeds,dim=0)
+    image_patch_feats = torch.cat(image_patch_feats, dim=0)
 
     sims_matrix = image_embeds @ text_embeds.t()
     # sims_matrix = torch.Tensor(np.load('/net/acadia10a/data/zkhan/albef-sims/albef-epoch30-sims.npy')).to(device)
@@ -86,7 +89,7 @@ def evaluation(model, data_loader, tokenizer, device, config):
     for i,sims in enumerate(metric_logger.log_every(sims_matrix[start:end], 50, header)): 
         topk_sim, topk_idx = sims.topk(k=config['k_test'], dim=0)
 
-        encoder_output = image_feats[start+i].repeat(config['k_test'],1,1)
+        encoder_output = image_patch_feats[start+i].repeat(config['k_test'],1,1)
         encoder_att = torch.ones(encoder_output.size()[:-1],dtype=torch.long).to(device)
         output = model.text_encoder.bert(text_tokens[topk_idx], 
                                     attention_mask = text_atts[topk_idx],
@@ -108,7 +111,7 @@ def evaluation(model, data_loader, tokenizer, device, config):
     for i,sims in enumerate(metric_logger.log_every(sims_matrix[start:end], 50, header)): 
         
         topk_sim, topk_idx = sims.topk(k=config['k_test'], dim=0)
-        encoder_output = image_feats[topk_idx]
+        encoder_output = image_patch_feats[topk_idx]
         encoder_att = torch.ones(encoder_output.size()[:-1],dtype=torch.long).to(device)
         output = model.text_encoder.bert(text_tokens[start+i].repeat(config['k_test'],1), 
                                     attention_mask = text_atts[start+i].repeat(config['k_test'],1),
