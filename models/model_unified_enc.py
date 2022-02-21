@@ -91,7 +91,10 @@ class ALBEF(nn.Module):
         
         image_embeds = self.visual_encoder(image) 
         image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(image.device)
-
+        # The mode is red herring. It just needs to be set to something besides "multimodal"
+        # to operate in self-attention mode. We want self-attention mode for unimodal processing.
+        image_embeds = self.text_encoder.bert(inputs_embeds=image_embeds, attention_mask=image_atts, mode='image',
+            return_dict=True).last_hidden_state
         image_feat = F.normalize(self.vision_proj(image_embeds[:,0,:]),dim=-1)  
 
         text_output = self.text_encoder.bert(text.input_ids, attention_mask = text.attention_mask,                      
@@ -103,6 +106,10 @@ class ALBEF(nn.Module):
         with torch.no_grad():
             self._momentum_update()
             image_embeds_m = self.visual_encoder_m(image) 
+            image_embeds_m = self.text_encoder_m.bert(
+                inputs_embeds=image_embeds_m, attention_mask=image_atts, mode='image',
+                return_dict=True
+            ).last_hidden_state
             image_feat_m = F.normalize(self.vision_proj_m(image_embeds_m[:,0,:]),dim=-1)  
             image_feat_all = torch.cat([image_feat_m.t(),self.image_queue.clone().detach()],dim=1)                                         
             text_output_m = self.text_encoder_m.bert(text.input_ids, attention_mask = text.attention_mask,                      
