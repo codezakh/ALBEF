@@ -94,7 +94,7 @@ class ALBEF(nn.Module):
     def forward(self, image, text, alpha=0):
         with torch.no_grad():
             self.temp.clamp_(0.001,0.5)
-        
+
         image_embeds = self.visual_encoder(image) 
         image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(image.device)
 
