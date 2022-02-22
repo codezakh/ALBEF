@@ -86,18 +86,16 @@ class re_eval_dataset(Dataset):
         
 
 class pretrain_dataset(Dataset):
-    def __init__(self, ann_file, transform, max_words=30, image_resolution=256):        
+    def __init__(self, ann_file, transform, visual_tokenizer_transform, max_words=30, image_resolution=256):        
         self.ann = []
         for f in ann_file:
             self.ann += json.load(open(f,'r'))
 
         # We do this following BEiT:
         # https://sourcegraph.com/github.com/microsoft/unilm/-/blob/beit/datasets.py?L64.
-        self.common_transform = transform
         self.max_words = max_words
-        imagenet_normalize = T.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
-        self.patch_transform = T.Compose([T.ToTensor(), imagenet_normalize])
-        self.visual_token_transform = T.Compose([T.ToTensor(), map_pixels])
+        self.patch_transform = transform
+        self.visual_token_transform = visual_tokenizer_transform 
         window_size = image_resolution  // 16, image_resolution // 16
         self.masked_position_generator = MaskingGenerator(
             window_size, num_masking_patches=75, max_num_patches=None, min_num_patches=16
@@ -119,7 +117,6 @@ class pretrain_dataset(Dataset):
 
         try: 
             image = Image.open(ann['image']).convert('RGB')   
-            image = self.common_transform(image)
             image_for_tokenization = self.visual_token_transform(image) 
             image_for_visual_encoder = self.patch_transform(image)
             masked_positions = self.masked_position_generator()

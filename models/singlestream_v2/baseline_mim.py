@@ -8,7 +8,6 @@
 from functools import partial
 from models.vit import VisionTransformer, interpolate_pos_embed
 from models.med import BertConfig, BertForMaskedLM
-from models.discrete_vae import Dalle_VAE
 
 import torch
 import torch.nn.functional as F
@@ -16,11 +15,6 @@ from torch import nn
 
 import numpy as np
 import random
-
-def get_dalle_vae(weight_path, image_size, device):
-    vae = Dalle_VAE(image_size)
-    vae.load_model(model_dir=weight_path, device=device)
-    return vae
 
 
 class ALBEF(nn.Module):
@@ -49,7 +43,7 @@ class ALBEF(nn.Module):
             pos_embed_reshaped = interpolate_pos_embed(state_dict['pos_embed'], self.visual_encoder)
             state_dict['pos_embed'] = pos_embed_reshaped
             msg = self.visual_encoder.load_state_dict(state_dict,strict=False)
-            print(msg)          
+            print(f'missing_keys={msg.missing_keys}\tunexpected_keys={msg.unexpected_keys}')         
             
         vision_width = config['vision_width']       
         bert_config = BertConfig.from_json_file(config['bert_config'])
@@ -64,6 +58,10 @@ class ALBEF(nn.Module):
         self.queue_size = config['queue_size']
         self.momentum = config['momentum']  
         self.itm_head = nn.Linear(text_width, 2)     
+
+        # Hardcoded from DALL-E's D-VAE.
+        vocab_size = 8192
+        self.mim_head = nn.Linear(self.visual_encoder.embed_dim, vocab_size)
 
         # create momentum models
         self.visual_encoder_m = VisionTransformer(
@@ -91,7 +89,7 @@ class ALBEF(nn.Module):
 
 
 
-    def forward(self, image, text, alpha=0):
+    def forward(self, image, text, visual_token_ids, masked_visual_token_pos, masked_visual_tok_labels, alpha=0):
         with torch.no_grad():
             self.temp.clamp_(0.001,0.5)
 
@@ -223,7 +221,16 @@ class ALBEF(nn.Module):
                                       )                           
         loss_mlm = mlm_output.loss        
 
-        return loss_mlm, loss_ita, loss_itm  
+
+        ##================= MIM ========================##
+        post_mask_image_embeds = self.visual_encoder(image, masked_visual_token_pos)
+        # Drop the CLS token, because we don't mask it.
+        post_mask_image_embeds = post_mask_image_embeds[:, 1:]
+        masked_visual_tokens = post_mask_image_embeds[masked_visual_token_pos]
+        predicted_visual_tokens = self.mim_head(masked_visual_tokens)
+        loss_mim = F.cross_entropy(input=predicted_visual_tokens, target=masked_visual_tok_labels)
+
+        return loss_mlm, loss_ita, loss_itm, loss_mim  
 
         
 

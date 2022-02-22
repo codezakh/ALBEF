@@ -130,6 +130,7 @@ class VisionTransformer(nn.Module):
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
@@ -157,11 +158,17 @@ class VisionTransformer(nn.Module):
     def no_weight_decay(self):
         return {'pos_embed', 'cls_token'}
 
-    def forward(self, x, register_blk=-1):
+    def forward(self, x, masked_visual_token_pos=None, register_blk=-1):
         B = x.shape[0]
         x = self.patch_embed(x)
+        seq_len = x.shape[1]
 
-        cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        mask_tokens = self.mask_token.expand(B, seq_len, -1)
+        if masked_visual_token_pos is not None:
+            # Replace the masked visual tokens with mask_token
+            w = masked_visual_token_pos.unsqueeze(-1).type_as(mask_tokens) 
+            x = x * (1 - w) + mask_tokens * w
         x = torch.cat((cls_tokens, x), dim=1)
   
         x = x + self.pos_embed[:,:x.size(1),:]
