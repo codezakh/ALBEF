@@ -6,8 +6,10 @@
 '''
 
 from functools import partial
+from multiprocessing.sharedctypes import Value
 from models.vit import VisionTransformer, interpolate_pos_embed
 from models.med import BertConfig, BertForMaskedLM
+from enum import Enum
 
 import torch
 import torch.nn.functional as F
@@ -15,6 +17,10 @@ from torch import nn
 
 import numpy as np
 import random
+
+class MIM_Mode(Enum):
+    unimodal = 'unimodal'
+    multimodal = 'multimodal'
 
 
 class ALBEF(nn.Module):
@@ -62,6 +68,7 @@ class ALBEF(nn.Module):
         # Hardcoded from DALL-E's D-VAE.
         vocab_size = 8192
         self.mim_head = nn.Linear(self.visual_encoder.embed_dim, vocab_size)
+        self.mim_mode = MIM_Mode(config['mim_mode'])
 
         # create momentum models
         self.visual_encoder_m = VisionTransformer(
@@ -223,12 +230,27 @@ class ALBEF(nn.Module):
 
 
         ##================= MIM ========================##
-        post_mask_image_embeds = self.visual_encoder(image, masked_visual_token_pos)
-        # Drop the CLS token, because we don't mask it.
-        post_mask_image_embeds = post_mask_image_embeds[:, 1:]
-        masked_visual_tokens = post_mask_image_embeds[masked_visual_token_pos]
-        predicted_visual_tokens = self.mim_head(masked_visual_tokens)
-        loss_mim = F.cross_entropy(input=predicted_visual_tokens, target=masked_visual_tok_labels)
+        if self.mim_mode is MIM_Mode.unimodal:
+            post_mask_image_embeds = self.visual_encoder(image, masked_visual_token_pos)
+            # Drop the CLS token, because we don't mask it.
+            post_mask_image_embeds = post_mask_image_embeds[:, 1:]
+            masked_visual_tokens = post_mask_image_embeds[masked_visual_token_pos]
+            predicted_visual_tokens = self.mim_head(masked_visual_tokens)
+            loss_mim = F.cross_entropy(input=predicted_visual_tokens, target=masked_visual_tok_labels)
+        elif self.mim_mode is MIM_Mode.multimodal:
+            post_mask_image_embeds = self.visual_encoder(image, masked_visual_token_pos)
+            post_mask_cross_embeds = self.text_encoder.bert(
+                inputs_embeds=post_mask_image_embeds, 
+                attention_mask=image_atts,
+                encoder_hidden_states=self.text_encoder.bert.embeddings(text.input_ids),
+                encoder_attention_mask=text.attention_mask,
+                return_dict=True
+            )
+            # Drop the CLS token, because we don't mask it.
+            post_mask_cross_embeds = post_mask_cross_embeds.last_hidden_state[:, 1:]
+            masked_visual_tokens = post_mask_cross_embeds[masked_visual_token_pos]
+            predicted_visual_tokens = self.mim_head(masked_visual_tokens)
+            loss_mim = F.cross_entropy(input=predicted_visual_tokens, target=masked_visual_tok_labels)
 
         return loss_mlm, loss_ita, loss_itm, loss_mim  
 
