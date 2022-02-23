@@ -155,7 +155,6 @@ def main(args, config):
     if utils.is_main_process() and not disable_wandb:
         print('Is main process, creating W&B logger.')
         wandb_logger = wandb.init(project="vision-language-alignment", entity="zakh", config=config)
-        wandb_logger.watch(model, log_graph=False)
     else:
         wandb_logger = None
     
