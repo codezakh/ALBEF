@@ -16,7 +16,7 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from models.model_pretrain_shared_txt_enc import ALBEF
+from models.singlestream_v2.baseline import ALBEF
 from models.vit import interpolate_pos_embed
 from models.tokenization_bert import BertTokenizer
 
@@ -226,6 +226,14 @@ def main(args, config):
         state_dict['visual_encoder.pos_embed'] = pos_embed_reshaped
         m_pos_embed_reshaped = interpolate_pos_embed(state_dict['visual_encoder_m.pos_embed'],model.visual_encoder_m)   
         state_dict['visual_encoder_m.pos_embed'] = m_pos_embed_reshaped 
+
+        # Drop the MIM head so all keys can be matched. We don't need the MIM head
+        # for inference.
+        try:
+            state_dict.pop('mim_head.weight')
+            state_dict.pop('mim_head.bias')
+        except KeyError:
+            pass
         
         # for key in list(state_dict.keys()):
         #     if 'bert' in key:
