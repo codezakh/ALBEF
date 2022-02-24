@@ -68,6 +68,7 @@ class ALBEF(nn.Module):
         # Hardcoded from DALL-E's D-VAE.
         vocab_size = 8192
         self.mim_head = nn.Linear(self.visual_encoder.embed_dim, vocab_size)
+        self.mim_head_m = nn.Linear(self.visual_encoder.embed_dim, vocab_size)
         self.mim_mode = MIM_Mode(config['mim_mode'])
 
         # create momentum models
@@ -82,6 +83,7 @@ class ALBEF(nn.Module):
                             [self.vision_proj,self.vision_proj_m],
                             [self.text_encoder,self.text_encoder_m],
                             [self.text_proj,self.text_proj_m],
+                            [self.mim_head, self.mim_head_m]
                            ]
         
         self.copy_params()
@@ -238,6 +240,20 @@ class ALBEF(nn.Module):
             predicted_visual_tokens = self.mim_head(masked_visual_tokens)
             loss_mim = F.cross_entropy(input=predicted_visual_tokens, target=masked_visual_tok_labels)
         elif self.mim_mode is MIM_Mode.multimodal:
+            with torch.no_grad():
+                post_mask_image_embeds_m = self.visual_encoder_m(image, masked_visual_token_pos)
+                post_mask_cross_embeds_m = self.text_encoder.bert(
+                    inputs_embeds=post_mask_image_embeds_m, 
+                    attention_mask=image_atts,
+                    encoder_hidden_states=self.text_encoder.bert.embeddings(text.input_ids),
+                    encoder_attention_mask=text.attention_mask,
+                    return_dict=True
+                )
+                post_mask_cross_embeds_m = post_mask_cross_embeds_m.last_hidden_state[:, 1:]
+                vis_tok_logits_m = self.mim_head_m(post_mask_cross_embeds_m)
+            
+            soft_labels_mim = F.softmax(vis_tok_logits_m, dim=-1)
+
             post_mask_image_embeds = self.visual_encoder(image, masked_visual_token_pos)
             post_mask_cross_embeds = self.text_encoder.bert(
                 inputs_embeds=post_mask_image_embeds, 
@@ -248,9 +264,15 @@ class ALBEF(nn.Module):
             )
             # Drop the CLS token, because we don't mask it.
             post_mask_cross_embeds = post_mask_cross_embeds.last_hidden_state[:, 1:]
-            masked_visual_tokens = post_mask_cross_embeds[masked_visual_token_pos]
-            predicted_visual_tokens = self.mim_head(masked_visual_tokens)
-            loss_mim = F.cross_entropy(input=predicted_visual_tokens, target=masked_visual_tok_labels)
+            predicted_visual_tokens = self.mim_head(post_mask_cross_embeds)
+            loss_mim = F.cross_entropy(
+                input=predicted_visual_tokens[masked_visual_token_pos], 
+                target=masked_visual_tok_labels
+            )
+
+            loss_distill = -torch.sum(F.log_softmax(predicted_visual_tokens, dim=-1) * soft_labels_mim, dim=-1)
+            loss_distill = loss_distill[masked_visual_token_pos].mean()
+            loss_mim = (1 - alpha) * loss_mim + alpha * loss_distill
 
         return loss_mlm, loss_ita, loss_itm, loss_mim  
 
