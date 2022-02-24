@@ -232,6 +232,8 @@ def main(args, config):
         try:
             state_dict.pop('mim_head.weight')
             state_dict.pop('mim_head.bias')
+            state_dict.pop('mim_head_m.weight')
+            state_dict.pop('mim_head_m.bias')
         except KeyError:
             pass
         
