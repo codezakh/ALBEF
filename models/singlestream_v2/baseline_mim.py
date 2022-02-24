@@ -242,7 +242,7 @@ class ALBEF(nn.Module):
         elif self.mim_mode is MIM_Mode.multimodal:
             with torch.no_grad():
                 post_mask_image_embeds_m = self.visual_encoder_m(image, masked_visual_token_pos)
-                post_mask_cross_embeds_m = self.text_encoder.bert(
+                post_mask_cross_embeds_m = self.text_encoder_m.bert(
                     inputs_embeds=post_mask_image_embeds_m, 
                     attention_mask=image_atts,
                     encoder_hidden_states=self.text_encoder.bert.embeddings(text.input_ids),
