@@ -229,13 +229,17 @@ def main(args, config):
 
         # Drop the MIM head so all keys can be matched. We don't need the MIM head
         # for inference.
-        try:
-            state_dict.pop('mim_head.weight')
-            state_dict.pop('mim_head.bias')
-            state_dict.pop('mim_head_m.weight')
-            state_dict.pop('mim_head_m.bias')
-        except KeyError:
-            pass
+        # try:
+        #     state_dict.pop('mim_head.weight')
+        #     state_dict.pop('mim_head.bias')
+        #     state_dict.pop('mim_head_m.weight')
+        #     state_dict.pop('mim_head_m.bias')
+        # except KeyError:
+        #     pass
+
+        required_keys = model.state_dict().keys()
+        state_dict = {k: v for k, v in state_dict.items() if k in required_keys}
+
         
         # for key in list(state_dict.keys()):
         #     if 'bert' in key:
