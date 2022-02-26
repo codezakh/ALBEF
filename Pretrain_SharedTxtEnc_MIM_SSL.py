@@ -154,7 +154,7 @@ def main(args, config):
     disable_wandb = config.get('disable_wandb', False) # Enable by default.
     if utils.is_main_process() and not disable_wandb:
         print('Is main process, creating W&B logger.')
-        wandb_logger = wandb.init(project="vision-language-alignment", entity="zakh", config=config)
+        wandb_logger = wandb.init(project="vision-language-alignment", entity="zakh", config=config, id=args.wandb_id)
     else:
         wandb_logger = None
     
@@ -237,11 +237,13 @@ if __name__ == '__main__':
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     parser.add_argument('--distributed', default=True, type=bool)
     parser.add_argument('--mim_mode', default='unimodal')
+    parser.add_argument('--wandb_id')
     args = parser.parse_args()
 
     config = yaml.load(open(args.config, 'r'), Loader=yaml.Loader)
 
     config['mim_mode'] = args.mim_mode
+    config['wandb_id'] = args.wandb_id
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
