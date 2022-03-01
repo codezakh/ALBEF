@@ -101,7 +101,7 @@ class VisionTransformer(nn.Module):
     """
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None, representation_size=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None):
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None, mask_token=True):
         """
         Args:
             img_size (int, tuple): input image size
@@ -130,7 +130,8 @@ class VisionTransformer(nn.Module):
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
-        self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        if mask_token:
+            self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
@@ -164,8 +165,8 @@ class VisionTransformer(nn.Module):
         seq_len = x.shape[1]
 
         cls_tokens = self.cls_token.expand(B, -1, -1)
-        mask_tokens = self.mask_token.expand(B, seq_len, -1)
         if masked_visual_token_pos is not None:
+            mask_tokens = self.mask_token.expand(B, seq_len, -1)
             # Replace the masked visual tokens with mask_token
             w = masked_visual_token_pos.unsqueeze(-1).type_as(mask_tokens) 
             x = x * (1 - w) + mask_tokens * w
