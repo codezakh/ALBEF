@@ -86,10 +86,12 @@ def evaluation(model, data_loader, tokenizer, device, config):
     text_feats = []
     text_embeds = []  
     text_atts = []
+    text_inputs = []
     for i in tqdm(range(0, num_text, text_bs)):
         text = texts[i: min(num_text, i+text_bs)]
         text_input = tokenizer(text, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device) 
-        text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
+        text_inputs.append(text_input)
+        text_output = model.text_encoder.bert(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
         text_feat = text_output.last_hidden_state
         text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
         text_embeds.append(text_embed)   
@@ -98,6 +100,7 @@ def evaluation(model, data_loader, tokenizer, device, config):
     text_embeds = torch.cat(text_embeds,dim=0)
     text_feats = torch.cat(text_feats,dim=0)
     text_atts = torch.cat(text_atts,dim=0)
+    text_tokens = torch.cat([_.input_ids for _ in text_inputs], dim=0)
     
     image_feats = []
     image_embeds = []
@@ -112,8 +115,9 @@ def evaluation(model, data_loader, tokenizer, device, config):
      
     image_feats = torch.cat(image_feats,dim=0)
     image_embeds = torch.cat(image_embeds,dim=0)
-    
+
     sims_matrix = image_embeds @ text_embeds.t()
+    # sims_matrix = torch.Tensor(np.load('/net/acadia10a/data/zkhan/albef-sims/albef-epoch30-sims.npy')).to(device)
     score_matrix_i2t = torch.full((len(data_loader.dataset.image),len(texts)),-100.0).to(device)
     
     num_tasks = utils.get_world_size()
@@ -127,12 +131,12 @@ def evaluation(model, data_loader, tokenizer, device, config):
 
         encoder_output = image_feats[start+i].repeat(config['k_test'],1,1)
         encoder_att = torch.ones(encoder_output.size()[:-1],dtype=torch.long).to(device)
-        output = model.text_encoder(encoder_embeds = text_feats[topk_idx], 
+        output = model.text_encoder.bert(text_tokens[topk_idx], 
                                     attention_mask = text_atts[topk_idx],
                                     encoder_hidden_states = encoder_output,
                                     encoder_attention_mask = encoder_att,                             
                                     return_dict = True,
-                                    mode = 'fusion'
+                                    mode = 'multimodal'
                                    )
         score = model.itm_head(output.last_hidden_state[:,0,:])[:,1]
         score_matrix_i2t[start+i,topk_idx] = score
@@ -149,12 +153,12 @@ def evaluation(model, data_loader, tokenizer, device, config):
         topk_sim, topk_idx = sims.topk(k=config['k_test'], dim=0)
         encoder_output = image_feats[topk_idx]
         encoder_att = torch.ones(encoder_output.size()[:-1],dtype=torch.long).to(device)
-        output = model.text_encoder(encoder_embeds = text_feats[start+i].repeat(config['k_test'],1,1), 
+        output = model.text_encoder.bert(text_tokens[start+i].repeat(config['k_test'],1), 
                                     attention_mask = text_atts[start+i].repeat(config['k_test'],1),
                                     encoder_hidden_states = encoder_output,
                                     encoder_attention_mask = encoder_att,                             
                                     return_dict = True,
-                                    mode = 'fusion'
+                                    mode = 'multimodal'
                                    )
         score = model.itm_head(output.last_hidden_state[:,0,:])[:,1]
         score_matrix_t2i[start+i,topk_idx] = score
@@ -169,7 +173,6 @@ def evaluation(model, data_loader, tokenizer, device, config):
     print('Evaluation time {}'.format(total_time_str)) 
 
     return score_matrix_i2t.cpu().numpy(), score_matrix_t2i.cpu().numpy()
-
 
             
 @torch.no_grad()

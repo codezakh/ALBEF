@@ -16,7 +16,7 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from models.singlestream_v2.baseline import ALBEF
+from models.singlestream_v2.baseline_retrieval import ALBEF
 from models.vit import interpolate_pos_embed
 from models.tokenization_bert import BertTokenizer
 
@@ -47,7 +47,7 @@ def evaluation(model, data_loader, tokenizer, device, config):
         text = texts[i: min(num_text, i+text_bs)]
         text_input = tokenizer(text, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device) 
         text_inputs.append(text_input)
-        text_output = model.text_encoder.bert(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
+        text_output = model.text_encoder(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
         text_feat = text_output.last_hidden_state
         text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
         text_embeds.append(text_embed)   
@@ -87,7 +87,7 @@ def evaluation(model, data_loader, tokenizer, device, config):
 
         encoder_output = image_feats[start+i].repeat(config['k_test'],1,1)
         encoder_att = torch.ones(encoder_output.size()[:-1],dtype=torch.long).to(device)
-        output = model.text_encoder.bert(text_tokens[topk_idx], 
+        output = model.text_encoder(text_tokens[topk_idx], 
                                     attention_mask = text_atts[topk_idx],
                                     encoder_hidden_states = encoder_output,
                                     encoder_attention_mask = encoder_att,                             
@@ -109,7 +109,7 @@ def evaluation(model, data_loader, tokenizer, device, config):
         topk_sim, topk_idx = sims.topk(k=config['k_test'], dim=0)
         encoder_output = image_feats[topk_idx]
         encoder_att = torch.ones(encoder_output.size()[:-1],dtype=torch.long).to(device)
-        output = model.text_encoder.bert(text_tokens[start+i].repeat(config['k_test'],1), 
+        output = model.text_encoder(text_tokens[start+i].repeat(config['k_test'],1), 
                                     attention_mask = text_atts[start+i].repeat(config['k_test'],1),
                                     encoder_hidden_states = encoder_output,
                                     encoder_attention_mask = encoder_att,                             
