@@ -216,6 +216,10 @@ def main(args, config):
     #### Model #### 
     print("Creating model")
     model = ALBEF(config=config, text_encoder=args.text_encoder, tokenizer=tokenizer)
+
+    # Delete the .idx_queue from the model, we don't need it for the
+    # zero-shot evaluation.
+    del model.idx_queue
     
     if args.checkpoint:    
         checkpoint = torch.load(args.checkpoint, map_location='cpu') 
@@ -237,15 +241,14 @@ def main(args, config):
         # except KeyError:
         #     pass
 
+        for key in list(state_dict.keys()):
+            if 'bert' in key:
+                encoder_key = key.replace('bert.','')         
+                state_dict[encoder_key] = state_dict[key] 
+                del state_dict[key]                
+
         required_keys = model.state_dict().keys()
         state_dict = {k: v for k, v in state_dict.items() if k in required_keys}
-
-        
-        # for key in list(state_dict.keys()):
-        #     if 'bert' in key:
-        #         encoder_key = key.replace('bert.','')         
-        #         state_dict[encoder_key] = state_dict[key] 
-        #         del state_dict[key]                
         # for key in model.state_dict().keys():
         #     if key in state_dict.keys():
         #         if state_dict[key].shape != model.state_dict()[key].shape:
