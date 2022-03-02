@@ -61,8 +61,6 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
         
         if epoch==0 and i%step_size==0 and i<=warmup_iterations: 
             scheduler.step(i//step_size) 
-        
-        break
             
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
