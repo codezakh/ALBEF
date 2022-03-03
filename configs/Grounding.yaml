@@ -4,7 +4,7 @@ test_file: [
   '/net/acadia10a/data/zkhan/downstream-finetuning-json/refcoco+_test.json'
 ]
 
-refcoco_data: '/net/acadia10a/data/zkhan/sandbox/refcoco+/'
+refcoco_data: '/net/acadia10a/data/zkhan/refcoco+/'
 det_file: '/net/acadia10a/data/zkhan/downstream-finetuning-json/refcoco+/dets.json'            
 coco_file: '/net/acadia10a/data/zkhan/downstream-finetuning-json/refcoco+/cocos.json'    
 
