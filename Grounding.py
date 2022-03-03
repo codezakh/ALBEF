@@ -1,6 +1,6 @@
 import argparse
 import os
-import ruamel_yaml as yaml
+import ruamel.yaml as yaml
 import numpy as np
 import random
 import time
@@ -56,7 +56,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
         loss = loss_ita + loss_itm
         
         optimizer.zero_grad()
-        loss.backward()
+        loss.backward(retain_graph=True)
         optimizer.step()    
         
         metric_logger.update(loss_itm=loss_itm.item())
@@ -205,6 +205,7 @@ def main(args, config):
     model_without_ddp = model
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model._set_static_graph()
         model_without_ddp = model.module   
     
     arg_opt = utils.AttrDict(config['optimizer'])
