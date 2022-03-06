@@ -20,7 +20,9 @@ class ALBEF(nn.Module):
 
         self.visual_encoder = VisionTransformer(
             img_size=config['image_res'], patch_size=16, embed_dim=768, depth=12, num_heads=12, 
-            mlp_ratio=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6))    
+            mlp_ratio=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6),
+            mask_token=config.get('vit_mask_token', True)
+            )    
 
         bert_config = BertConfig.from_json_file(config['bert_config'])
         bert_config.num_hidden_layers = 18
