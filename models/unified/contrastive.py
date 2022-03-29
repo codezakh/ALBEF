@@ -66,10 +66,18 @@ class VisionLanguageLearner(nn.Module):
 
         # create momentum models
         self.text_encoder_m = BertForMaskedLM.from_pretrained(text_encoder, config=bert_config)       
+        self.vision_proj_m = nn.Linear(vision_width, embed_dim)
+        self.text_proj_m = nn.Linear(text_width, embed_dim)    
+        self.visual_encoder_m = VisionTransformer(
+            img_size=config['image_res'], patch_size=16, embed_dim=768, depth=1, num_heads=12, 
+            mlp_ratio=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6))   
         
         self.model_pairs = [
-                            [self.text_encoder,self.text_encoder_m],
-                           ]
+            (self.visual_encoder, self.visual_encoder_m),
+            (self.text_encoder, self.text_encoder_m),
+            (self.text_proj, self.text_proj_m),
+            (self.vision_proj, self.vision_proj_m)
+        ]
         
         self.copy_params()
 
@@ -77,10 +85,6 @@ class VisionLanguageLearner(nn.Module):
     def forward(self, image, text, visual_token_ids, masked_visual_token_pos, masked_visual_tok_labels, alpha=0):
         with torch.no_grad():
             self.temp.clamp_(0.001,0.5)
-
-        # get momentum features
-        with torch.no_grad():
-            self._momentum_update()
 
         ## ================ ITA ====================== ##
         image_embeds = self.visual_encoder(image) 
@@ -103,15 +107,36 @@ class VisionLanguageLearner(nn.Module):
         sim_t2i = text_feat @ image_feat.T / self.temp 
         
         with torch.no_grad():
+            self._momentum_update()
+
+            image_embeds_m = self.visual_encoder_m(image) 
+            image_embeds_m = self.text_encoder.bert(
+                        inputs_embeds=image_embeds_m, 
+                        attention_mask=image_atts,
+                        return_dict=True,
+                        mode='text'
+                    )
+            image_embeds_m = image_embeds_m.last_hidden_state
+            image_feat_m = F.normalize(self.vision_proj_m(image_embeds_m[:,0,:]),dim=-1)  
+
+            text_output_m = self.text_encoder_m.bert(text.input_ids, attention_mask = text.attention_mask,                      
+                                                return_dict = True, mode = 'text')    
+            text_feat_m = F.normalize(self.text_proj_m(text_output_m.last_hidden_state[:,0,:]),dim=-1) 
+
+            sim_i2t_m = image_feat_m @ text_feat_m.T / self.temp
+            sim_t2i_m = text_feat_m @ image_feat_m.T / self.temp
+
             sim_targets = torch.zeros(sim_i2t.size()).to(image.device)
             sim_targets.fill_diagonal_(1)
 
+            sim_i2t_targets = alpha * F.softmax(sim_i2t_m, dim=1) + (1 - alpha) * sim_targets
+            sim_t2i_targets = alpha * F.softmax(sim_t2i_m, dim=1) + (1 - alpha) * sim_targets        
 
-        loss_i2t = -torch.sum(F.log_softmax(sim_i2t, dim=1)*sim_targets,dim=1).mean()
-        loss_t2i = -torch.sum(F.log_softmax(sim_t2i, dim=1)*sim_targets,dim=1).mean() 
+
+        loss_i2t = -torch.sum(F.log_softmax(sim_i2t, dim=1)*sim_i2t_targets,dim=1).mean()
+        loss_t2i = -torch.sum(F.log_softmax(sim_t2i, dim=1)*sim_t2i_targets,dim=1).mean() 
 
         loss_ita = (loss_i2t+loss_t2i)/2
-
 
         
         ##================= MLM ========================##                
