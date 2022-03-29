@@ -52,7 +52,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     if args.distributed:
         data_loader.sampler.set_epoch(epoch)
 
-    for i, (image, text) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for i, (image, text, _, _) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         
         optimizer.zero_grad()
   
