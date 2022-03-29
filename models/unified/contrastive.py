@@ -53,7 +53,10 @@ class VisionLanguageLearner(nn.Module):
         self.text_encoder = BertForMaskedLM.from_pretrained(text_encoder, config=bert_config)      
 
         text_width = self.text_encoder.config.hidden_size
+        self.vision_proj = nn.Linear(vision_width, embed_dim)
+        self.text_proj = nn.Linear(text_width, embed_dim)         
 
+        self.temp = nn.Parameter(torch.ones([]) * config['temp'])   
         self.queue_size = config['queue_size']
         self.momentum = config['momentum']  
 
@@ -72,9 +75,43 @@ class VisionLanguageLearner(nn.Module):
 
 
     def forward(self, image, text, visual_token_ids, masked_visual_token_pos, masked_visual_tok_labels, alpha=0):
+        with torch.no_grad():
+            self.temp.clamp_(0.001,0.5)
+
         # get momentum features
         with torch.no_grad():
             self._momentum_update()
+
+        ## ================ ITA ====================== ##
+        image_embeds = self.visual_encoder(image) 
+        image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(image.device)
+        image_embeds = self.text_encoder.bert(
+                        inputs_embeds=image_embeds, 
+                        attention_mask=image_atts,
+                        return_dict=True,
+                        mode='text'
+                    )
+        image_embeds = image_embeds.last_hidden_state
+        image_feat = F.normalize(self.vision_proj(image_embeds[:,0,:]),dim=-1)  
+
+        text_output = self.text_encoder.bert(text.input_ids, attention_mask = text.attention_mask,                      
+                                        return_dict = True, mode = 'text')            
+        text_embeds = text_output.last_hidden_state
+        text_feat = F.normalize(self.text_proj(text_embeds[:,0,:]),dim=-1)                 
+
+        sim_i2t = image_feat @ text_feat.T / self.temp 
+        sim_t2i = text_feat @ image_feat.T / self.temp 
+        
+        with torch.no_grad():
+            sim_targets = torch.zeros(sim_i2t.size()).to(image.device)
+            sim_targets.fill_diagonal_(1)
+
+
+        loss_i2t = -torch.sum(F.log_softmax(sim_i2t, dim=1)*sim_targets,dim=1).mean()
+        loss_t2i = -torch.sum(F.log_softmax(sim_t2i, dim=1)*sim_targets,dim=1).mean() 
+
+        loss_ita = (loss_i2t+loss_t2i)/2
+
 
         
         ##================= MLM ========================##                
@@ -120,7 +157,7 @@ class VisionLanguageLearner(nn.Module):
             target=masked_visual_tok_labels
         )
 
-        return loss_mlm, loss_mim  
+        return loss_mlm, loss_mim, loss_ita
 
         
 

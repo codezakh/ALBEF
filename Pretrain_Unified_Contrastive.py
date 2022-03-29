@@ -43,6 +43,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=50, fmt='{value:.6f}'))
     metric_logger.add_meter('loss_mlm', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
     metric_logger.add_meter('loss_mim', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
+    metric_logger.add_meter('loss_ita', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
     
     header = 'Train Epoch: [{}]'.format(epoch)
     print_freq = 50   
@@ -72,7 +73,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
             masked_visual_token_pos = masked_visual_token_positions.flatten(1).to(torch.bool)
             masked_visual_tok_labels = visual_token_ids[masked_visual_token_pos]
         
-        loss_mlm, loss_mim = model(
+        loss_mlm, loss_mim, loss_ita = model(
             image, text_input,
             visual_token_ids=visual_token_ids,
             masked_visual_token_pos=masked_visual_token_pos,
@@ -80,7 +81,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
             alpha = alpha
         )  
             
-        loss = loss_mlm + loss_mim
+        loss = loss_mlm + loss_mim + loss_ita
           
         loss.backward()
         grad_norm = utils.calculate_gradient_norm(model)
@@ -92,6 +93,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
                     data={
                         'loss_mlm': loss_mlm.item(),
                         'loss_mim': loss_mim.item(),
+                        'loss_ita': loss_ita.item(),
                         'grad_norm': grad_norm,
                         'lr': optimizer.param_groups[0]['lr']
                     }
@@ -99,6 +101,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
         
         metric_logger.update(loss_mlm=loss_mlm.item())
         metric_logger.update(loss_mim=loss_mim.item())
+        metric_logger.update(loss_ita=loss_ita.item())
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])         
         
         if epoch==0 and i%step_size==0 and i<=warmup_iterations: 
