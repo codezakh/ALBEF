@@ -33,7 +33,9 @@ class ALBEF(nn.Module):
      
         self.visual_encoder = VisionTransformer(
             img_size=config['image_res'], patch_size=16, embed_dim=768, depth=12, num_heads=12, 
-            mlp_ratio=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6))   
+            mlp_ratio=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6),
+            mask_token=config.get('vit_mask_token', True),
+            )   
         
         if init_deit:
             checkpoint = torch.hub.load_state_dict_from_url(
@@ -62,7 +64,9 @@ class ALBEF(nn.Module):
         # create momentum models
         self.visual_encoder_m = VisionTransformer(
             img_size=config['image_res'], patch_size=16, embed_dim=768, depth=12, num_heads=12, 
-            mlp_ratio=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6)) 
+            mlp_ratio=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6),
+            mask_token=config.get('vit_mask_token', True),
+            ) 
         self.vision_proj_m = nn.Linear(vision_width, embed_dim)
         self.text_encoder_m = BertForMaskedLM.from_pretrained(text_encoder, config=bert_config)       
         self.text_proj_m = nn.Linear(text_width, embed_dim)    
