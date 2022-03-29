@@ -18,10 +18,6 @@ from torch import nn
 import numpy as np
 import random
 
-class MIM_Mode(Enum):
-    unimodal = 'unimodal'
-    multimodal = 'multimodal'
-
 
 class VisionLanguageLearner(nn.Module):
     def __init__(self,                 
@@ -64,7 +60,6 @@ class VisionLanguageLearner(nn.Module):
         # Hardcoded from DALL-E's D-VAE.
         vocab_size = 8192
         self.mim_head = nn.Linear(self.visual_encoder.embed_dim, vocab_size)
-        self.mim_mode = MIM_Mode(config['mim_mode'])
 
         # create momentum models
         self.text_encoder_m = BertForMaskedLM.from_pretrained(text_encoder, config=bert_config)       
