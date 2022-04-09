@@ -50,10 +50,10 @@ def evaluation(model, data_loader, tokenizer, device, config):
         text_output = model.text_encoder.bert(text_input.input_ids, attention_mask = text_input.attention_mask, mode='text')  
         text_feat = text_output.last_hidden_state
         # Mask out the padded positions.
-        # for batch_idx, _ in enumerate(text_feat):
-        #     text_feat[batch_idx, text_input.attention_mask[batch_idx].bool()] = 0
-        # text_embed = F.normalize(text_feat[:,1:,:].mean(dim=1))
-        text_embed = F.normalize(text_feat[:,0,:])
+        for batch_idx, _ in enumerate(text_feat):
+            text_feat[batch_idx, text_input.attention_mask[batch_idx].bool()] = 0
+        text_embed = F.normalize(text_feat[:,1:,:].mean(dim=1))
+        # text_embed = F.normalize(text_feat[:,0,:])
         #text_embed = F.normalize(model.text_proj(text_feat[:,0,:]))
         text_embeds.append(text_embed)   
         text_feats.append(text_feat)
@@ -68,10 +68,14 @@ def evaluation(model, data_loader, tokenizer, device, config):
     for image, img_id in tqdm(data_loader): 
         image = image.to(device) 
         image_feat = model.visual_encoder(image)        
-        image_embed = F.normalize(image_feat[:, 0, :])
-        # image_embed = F.normalize(image_feat[:, 1:, :].mean(dim=1))
-        # image_embed = model.vision_proj(image_feat[:,0,:])            
-        # image_embed = F.normalize(image_embed,dim=-1)      
+        image_atts = torch.ones(image_feat.size()[:-1],dtype=torch.long).to(image.device)
+        image_feat = model.text_encoder.bert(
+            inputs_embeds=image_feat,
+            attention_mask=image_atts,
+            return_dict=True,
+            mode='text'
+        ).last_hidden_state
+        image_embed = F.normalize(image_feat[:, 0:, :].mean(dim=1))
         
         image_feats.append(image_feat)
         image_embeds.append(image_embed)
