@@ -8,6 +8,7 @@
 from functools import partial
 from models.vit import VisionTransformer, interpolate_pos_embed
 from models.xbert import BertConfig, BertForMaskedLM
+import utils
 
 import torch
 import torch.nn.functional as F
@@ -30,6 +31,8 @@ class ALBEF(nn.Module):
         self.tokenizer = tokenizer 
         self.mlm_probability = config['mlm_probability']
         embed_dim = config['embed_dim']
+
+        freeze_vision_encoder = config.get('freeze_vision_encoder', False)
      
         self.visual_encoder = VisionTransformer(
             img_size=config['image_res'], patch_size=16, embed_dim=768, depth=12, num_heads=12, 
@@ -78,6 +81,11 @@ class ALBEF(nn.Module):
                            ]
         
         self.copy_params()
+
+        if freeze_vision_encoder:
+            utils.freeze_model(self.visual_encoder)
+            utils.freeze_model(self.visual_encoder_m)
+
 
         # create the queue
         self.register_buffer("image_queue", torch.randn(embed_dim, self.queue_size))
