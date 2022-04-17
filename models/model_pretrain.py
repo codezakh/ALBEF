@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  * For full license text, see LICENSE.txt file in the repo root or https://opensource.org/licenses/BSD-3-Clause
 '''
-
+from omegaconf import OmegaConf
 from functools import partial
 from models.vit import VisionTransformer, interpolate_pos_embed
 from models.xbert import BertConfig, BertForMaskedLM
+import utils
 
 import torch
 import torch.nn.functional as F
@@ -30,6 +31,8 @@ class ALBEF(nn.Module):
         self.tokenizer = tokenizer 
         self.mlm_probability = config['mlm_probability']
         embed_dim = config['embed_dim']
+
+        freeze_vision_encoder = config.get('freeze_vision_encoder', False)
      
         self.visual_encoder = VisionTransformer(
             img_size=config['image_res'], patch_size=16, embed_dim=768, depth=12, num_heads=12, 
@@ -48,7 +51,7 @@ class ALBEF(nn.Module):
             print(msg)          
             
         vision_width = config['vision_width']       
-        bert_config = BertConfig.from_json_file(config['bert_config'])
+        bert_config = BertConfig.from_dict(OmegaConf.to_container(config.bert_config))
         
         self.text_encoder = BertForMaskedLM.from_pretrained(text_encoder, config=bert_config)      
 
@@ -78,6 +81,11 @@ class ALBEF(nn.Module):
                            ]
         
         self.copy_params()
+
+        if freeze_vision_encoder:
+            utils.freeze_model(self.visual_encoder)
+            utils.freeze_model(self.visual_encoder_m)
+
 
         # create the queue
         self.register_buffer("image_queue", torch.randn(embed_dim, self.queue_size))
