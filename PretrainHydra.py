@@ -220,11 +220,10 @@ if __name__ == '__main__':
     parser.add_argument('--overrides', nargs='+', default=[])
     args = parser.parse_args()
 
-    with hydra.initialize(config_path='./configs'):
+    with hydra.initialize(config_path='./configs-v2'):
         config = hydra.compose(config_name=args.config, overrides=args.overrides)
 
     # config = yaml.load(open(args.config, 'r'), Loader=yaml.Loader)
-
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     yaml.dump(OmegaConf.to_object(config), open(os.path.join(args.output_dir, 'config.yaml'), 'w'))    
