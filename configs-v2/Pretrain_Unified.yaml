@@ -1,5 +1,5 @@
 defaults:
-  - bert_config: 6t_6mm
+  - bert_config: 12mm 
   - _self_ # values defined in _this_ take precedence over defaults
 
 train_file: [
@@ -22,7 +22,7 @@ schedular: {sched: cosine, lr: 1e-4, epochs: 30, min_lr: 1e-5, decay_rate: 1, wa
 
 disable_wandb: true
 
-vit_mask_token: false
+vit_mask_token: true
 
 model_config:
-  import_path: models.model_pretrain.ALBEF
+  import_path: models.unified.albef_like.VisionLanguageLearner

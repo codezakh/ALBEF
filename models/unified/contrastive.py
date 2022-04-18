@@ -10,6 +10,7 @@ from multiprocessing.sharedctypes import Value
 from models.vit import VisionTransformer, interpolate_pos_embed
 from models.med import BertConfig, BertForMaskedLM
 from enum import Enum
+from omegaconf import OmegaConf
 
 import torch
 import torch.nn.functional as F
@@ -48,7 +49,7 @@ class VisionLanguageLearner(nn.Module):
             print(f'missing_keys={msg.missing_keys}\tunexpected_keys={msg.unexpected_keys}')         
             
         vision_width = config['vision_width']       
-        bert_config = BertConfig.from_json_file(config['bert_config'])
+        bert_config = BertConfig.from_dict(OmegaConf.to_container(config.bert_config))
         
         self.text_encoder = BertForMaskedLM.from_pretrained(text_encoder, config=bert_config)      
 
@@ -90,7 +91,7 @@ class VisionLanguageLearner(nn.Module):
         self.text_queue = nn.functional.normalize(self.text_queue, dim=0)
 
 
-    def forward(self, image, text, visual_token_ids, masked_visual_token_pos, masked_visual_tok_labels, alpha=0):
+    def forward(self, image, text, visual_token_ids, masked_visual_token_pos, masked_visual_tok_labels, alpha=0, return_dict=False):
         with torch.no_grad():
             self.temp.clamp_(0.001,0.5)
 
@@ -192,6 +193,15 @@ class VisionLanguageLearner(nn.Module):
             input=predicted_visual_tokens[masked_visual_token_pos], 
             target=masked_visual_tok_labels
         )
+
+        if return_dict:
+            return {
+                'losses': {
+                    'loss_ita': loss_ita,
+                    'loss_mlm': loss_mlm,
+                    'loss_mim': loss_mim
+                }
+            }
 
         return loss_mlm, loss_mim, loss_ita
 

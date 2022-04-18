@@ -14,6 +14,7 @@ import time
 import datetime
 import json
 from pathlib import Path
+from pydoc import locate
 
 import torch
 import torch.nn as nn
@@ -28,6 +29,7 @@ from omegaconf import OmegaConf
 from models.model_pretrain import ALBEF
 from models.vit import interpolate_pos_embed
 from models.tokenization_bert import BertTokenizer
+from models.discrete_vae import Dalle_VAE
 
 import utils
 from dataset import create_dataset, create_sampler, create_loader
@@ -36,15 +38,17 @@ from optim import create_optimizer
 from dataset.utils import collate_safe
 
 
-def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config, wandb_logger=None):
+def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, scheduler, config, image_tokenizer, wandb_logger=None):
     # train
     model.train()  
     
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=50, fmt='{value:.6f}'))
-    metric_logger.add_meter('loss_mlm', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
-    metric_logger.add_meter('loss_ita', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
-    metric_logger.add_meter('loss_itm', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
+    # metric_logger.add_meter('loss_mlm', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
+    # metric_logger.add_meter('loss_ita', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
+    # metric_logger.add_meter('loss_itm', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
+
+    meters_added =  False
     
     header = 'Train Epoch: [{}]'.format(epoch)
     print_freq = 50   
@@ -54,22 +58,42 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
     if args.distributed:
         data_loader.sampler.set_epoch(epoch)
 
-    for i, (image, text, _, _) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for i, (image, text, image_for_tokenization, masked_visual_token_positions) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         
         optimizer.zero_grad()
   
         image = image.to(device,non_blocking=True) 
 
         text_input = tokenizer(text, padding='longest', truncation=True, max_length=25, return_tensors="pt").to(device)  
+        image_for_tokenization = image_for_tokenization.to(device)
+        masked_visual_token_positions = masked_visual_token_positions.to(device)
         
         if epoch>0:
             alpha = config['alpha']
         else:
             alpha = config['alpha']*min(1,i/len(data_loader)) 
+
+        with torch.no_grad():
+            visual_token_ids = image_tokenizer.get_codebook_indices(image_for_tokenization).flatten(1)
+            masked_visual_token_pos = masked_visual_token_positions.flatten(1).to(torch.bool)
+            masked_visual_tok_labels = visual_token_ids[masked_visual_token_pos]
         
-        loss_mlm, loss_ita, loss_itm = model(image, text_input, alpha = alpha)  
-            
-        loss = loss_mlm + loss_ita + loss_itm    
+        model_output = model(
+            image=image,
+            text=text_input, 
+            visual_token_ids=visual_token_ids,
+            alpha=alpha,
+            masked_visual_token_pos=masked_visual_token_pos,
+            masked_visual_tok_labels=masked_visual_tok_labels,
+            return_dict=True
+        )  
+
+        if not meters_added:
+            for loss_name, _ in model_output['losses'].items():
+                metric_logger.add_meter(loss_name, utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
+            meters_added = True
+
+        loss = sum(model_output['losses'].values())
           
         loss.backward()
         grad_norm = utils.calculate_gradient_norm(model)
@@ -79,17 +103,22 @@ def train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device,
             if utils.is_main_process() and wandb_logger:
                 wandb_logger.log(
                     data={
-                        'loss_itm': loss_itm.item(),
-                        'loss_mlm': loss_mlm.item(),
-                        'loss_ita': loss_ita.item(),
+                        **{
+                            loss_name: loss_value.item() for
+                            loss_name, loss_value in model_output['losses'].items()
+                        },
                         'grad_norm': grad_norm,
                         'lr': optimizer.param_groups[0]['lr']
                     }
                 )
         
-        metric_logger.update(loss_mlm=loss_mlm.item())
-        metric_logger.update(loss_ita=loss_ita.item())
-        metric_logger.update(loss_itm=loss_itm.item())
+        for loss_name, loss_value in model_output['losses'].items():
+            # Turn it into a dictionary first, because the meter
+            # asks for the loss updates to be specified as keyword args.
+            metric_logger.update(**{loss_name: loss_value.item()})
+        # metric_logger.update(loss_mlm=loss_mlm.item())
+        # metric_logger.update(loss_ita=loss_ita.item())
+        # metric_logger.update(loss_itm=loss_itm.item())
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])         
         
         if epoch==0 and i%step_size==0 and i<=warmup_iterations: 
@@ -134,7 +163,8 @@ def main(args, config):
 
     #### Model #### 
     print("Creating model")
-    model = ALBEF(config=config, text_encoder=args.text_encoder, tokenizer=tokenizer, init_deit=True)
+    model_class = locate(config.model_config.import_path)
+    model = model_class(config=config, text_encoder=args.text_encoder, tokenizer=tokenizer, init_deit=True)
 
     disable_wandb = config.get('disable_wandb', False) # Enable by default.
     if utils.is_main_process() and not disable_wandb:
@@ -171,6 +201,11 @@ def main(args, config):
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         model_without_ddp = model.module    
+
+    print('Loading image tokenizer.')
+    image_tokenizer = Dalle_VAE(config['image_res'])
+    image_tokenizer.load_model(model_dir=config['image_tokenizer_path'], device=device)
+    print(f'Loaded image tokenizer from {config["image_tokenizer_path"]}')
     
     print("Start training")
     start_time = time.time()
@@ -180,7 +215,7 @@ def main(args, config):
         if epoch>0:
             lr_scheduler.step(epoch+warmup_steps)  
             
-        train_stats = train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler, config, wandb_logger=wandb_logger) 
+        train_stats = train(model, data_loader, optimizer, tokenizer, epoch, warmup_steps, device, lr_scheduler, config, image_tokenizer, wandb_logger=wandb_logger) 
         if utils.is_main_process():  
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch,
