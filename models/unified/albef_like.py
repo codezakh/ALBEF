@@ -89,6 +89,19 @@ class VisionLanguageLearner(nn.Module):
         self.image_queue = nn.functional.normalize(self.image_queue, dim=0)
         self.text_queue = nn.functional.normalize(self.text_queue, dim=0)
 
+    def encode_multimodal(self, text_embeds, text_attention_mask, image_embeds, image_attention_mask, use_momentum_encoder=False):
+        multimodal_encoder = self.text_encoder_m if use_momentum_encoder else self.text_encoder
+        # We have to specify mode=multimodal for the cross-attention
+        # to be used. We're harcoding this for now.
+        mode = 'multimodal'
+        return multimodal_encoder.bert(
+            encoder_embeds = text_embeds, 
+            attention_mask = text_attention_mask,
+            encoder_hidden_states = image_embeds,
+            encoder_attention_mask = image_attention_mask,      
+            return_dict = True,
+            mode=mode
+        )
 
 
     def forward(self, image, text, visual_token_ids, masked_visual_token_pos, masked_visual_tok_labels, alpha=0, return_dict=False):
@@ -152,12 +165,13 @@ class VisionLanguageLearner(nn.Module):
 
         ## ================ ITM ====================== ##
         # forward the positve image-text pair
-        output_pos = self.text_encoder.bert(encoder_embeds = text_embeds, 
-                                        attention_mask = text.attention_mask,
-                                        encoder_hidden_states = image_embeds,
-                                        encoder_attention_mask = image_atts,      
-                                        return_dict = True,
-                                       )            
+        output_pos = self.encode_multimodal(
+            text_embeds=text_embeds,
+            text_attention_mask=text.attention_mask,
+            image_embeds=image_embeds,
+            image_attention_mask=image_atts
+        )
+
         with torch.no_grad():
             bs = image.size(0)          
             weights_i2t = F.softmax(sim_i2t[:,:bs],dim=1)
@@ -189,12 +203,12 @@ class VisionLanguageLearner(nn.Module):
         image_embeds_all = torch.cat([image_embeds_neg,image_embeds],dim=0)
         image_atts_all = torch.cat([image_atts,image_atts],dim=0)
 
-        output_neg = self.text_encoder.bert(encoder_embeds = text_embeds_all, 
-                                        attention_mask = text_atts_all,
-                                        encoder_hidden_states = image_embeds_all,
-                                        encoder_attention_mask = image_atts_all,      
-                                        return_dict = True,
-                                       )                         
+        output_neg = self.encode_multimodal(
+            text_embeds=text_embeds_all,
+            text_attention_mask=text_atts_all,
+            image_embeds=image_embeds_all,
+            image_attention_mask=image_atts_all
+        )
 
         vl_embeddings = torch.cat([output_pos.last_hidden_state[:,0,:], output_neg.last_hidden_state[:,0,:]],dim=0)
         vl_output = self.itm_head(vl_embeddings)            
