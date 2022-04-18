@@ -169,7 +169,10 @@ def main(args, config):
     disable_wandb = config.get('disable_wandb', False) # Enable by default.
     if utils.is_main_process() and not disable_wandb:
         print('Is main process, creating W&B logger.')
-        wandb_logger = wandb.init(project="vision-language-alignment", entity="zakh", config=config)
+        wandb_logger = wandb.init(
+            project="vision-language-alignment", entity="zakh",
+            config=OmegaConf.to_container(config)
+        )
         wandb_logger.watch(model, log_graph=False)
     else:
         wandb_logger = None
