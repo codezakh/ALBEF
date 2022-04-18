@@ -22,7 +22,7 @@ schedular: {sched: cosine, lr: 1e-4, epochs: 30, min_lr: 1e-5, decay_rate: 1, wa
 
 disable_wandb: true
 
-vit_mask_token: true
+vit_mask_token: false
 
 model_config:
   import_path: models.unified.albef_like.VisionLanguageLearner

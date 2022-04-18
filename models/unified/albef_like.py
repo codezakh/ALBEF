@@ -61,6 +61,7 @@ class VisionLanguageLearner(nn.Module):
         self.temp = nn.Parameter(torch.ones([]) * config['temp'])   
         self.queue_size = config['queue_size']
         self.momentum = config['momentum']  
+        self.itm_head = nn.Linear(text_width, 2)     
 
         # create momentum models
         self.text_encoder_m = BertForMaskedLM.from_pretrained(text_encoder, config=bert_config)       
@@ -149,6 +150,59 @@ class VisionLanguageLearner(nn.Module):
         loss_ita = (loss_i2t+loss_t2i)/2
         self._dequeue_and_enqueue(image_feat_m, text_feat_m)
 
+        ## ================ ITM ====================== ##
+        # forward the positve image-text pair
+        output_pos = self.text_encoder.bert(encoder_embeds = text_embeds, 
+                                        attention_mask = text.attention_mask,
+                                        encoder_hidden_states = image_embeds,
+                                        encoder_attention_mask = image_atts,      
+                                        return_dict = True,
+                                       )            
+        with torch.no_grad():
+            bs = image.size(0)          
+            weights_i2t = F.softmax(sim_i2t[:,:bs],dim=1)
+            weights_t2i = F.softmax(sim_t2i[:,:bs],dim=1)
+   
+            weights_i2t.fill_diagonal_(0)
+            weights_t2i.fill_diagonal_(0)
+
+        # select a negative image for each text
+        image_embeds_neg = []    
+        for b in range(bs):
+            neg_idx = torch.multinomial(weights_t2i[b], 1).item()
+            image_embeds_neg.append(image_embeds[neg_idx])
+        image_embeds_neg = torch.stack(image_embeds_neg,dim=0)   
+
+        # select a negative text for each image
+        text_embeds_neg = []
+        text_atts_neg = []
+        for b in range(bs):
+            neg_idx = torch.multinomial(weights_i2t[b], 1).item()
+            text_embeds_neg.append(text_embeds[neg_idx])
+            text_atts_neg.append(text.attention_mask[neg_idx])
+        text_embeds_neg = torch.stack(text_embeds_neg,dim=0)   
+        text_atts_neg = torch.stack(text_atts_neg,dim=0)      
+
+        text_embeds_all = torch.cat([text_embeds, text_embeds_neg],dim=0)     
+        text_atts_all = torch.cat([text.attention_mask, text_atts_neg],dim=0)     
+
+        image_embeds_all = torch.cat([image_embeds_neg,image_embeds],dim=0)
+        image_atts_all = torch.cat([image_atts,image_atts],dim=0)
+
+        output_neg = self.text_encoder.bert(encoder_embeds = text_embeds_all, 
+                                        attention_mask = text_atts_all,
+                                        encoder_hidden_states = image_embeds_all,
+                                        encoder_attention_mask = image_atts_all,      
+                                        return_dict = True,
+                                       )                         
+
+        vl_embeddings = torch.cat([output_pos.last_hidden_state[:,0,:], output_neg.last_hidden_state[:,0,:]],dim=0)
+        vl_output = self.itm_head(vl_embeddings)            
+
+        itm_labels = torch.cat([torch.ones(bs,dtype=torch.long),torch.zeros(2*bs,dtype=torch.long)],
+                               dim=0).to(image.device)
+        loss_itm = F.cross_entropy(vl_output, itm_labels)     
+
         
         ##================= MLM ========================##                
         input_ids = text.input_ids.clone()
@@ -183,10 +237,11 @@ class VisionLanguageLearner(nn.Module):
                 'losses': {
                     'loss_ita': loss_ita,
                     'loss_mlm': loss_mlm,
+                    'loss_itm': loss_itm,
                 }
             }
 
-        return loss_mlm, loss_ita
+        return loss_mlm, loss_ita, loss_itm
 
         
 
