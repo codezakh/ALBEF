@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  * For full license text, see LICENSE.txt file in the repo root or https://opensource.org/licenses/BSD-3-Clause
 '''
-
+from omegaconf import OmegaConf
 from functools import partial
 from models.vit import VisionTransformer, interpolate_pos_embed
 from models.xbert import BertConfig, BertForMaskedLM
@@ -51,7 +51,7 @@ class ALBEF(nn.Module):
             print(msg)          
             
         vision_width = config['vision_width']       
-        bert_config = BertConfig.from_json_file(config['bert_config'])
+        bert_config = BertConfig.from_dict(OmegaConf.to_container(config.bert_config))
         
         self.text_encoder = BertForMaskedLM.from_pretrained(text_encoder, config=bert_config)      
 
@@ -97,7 +97,7 @@ class ALBEF(nn.Module):
 
 
 
-    def forward(self, image, text, alpha=0):
+    def forward(self, image, text, alpha=0, return_dict=False, **kwargs):
         with torch.no_grad():
             self.temp.clamp_(0.001,0.5)
         
@@ -223,9 +223,15 @@ class ALBEF(nn.Module):
                                       )                           
         loss_mlm = mlm_output.loss        
 
+        if return_dict:
+            return {
+                'losses': {
+                    'loss_mlm': loss_mlm,
+                    'loss_itm': loss_itm,
+                    'loss_ita': loss_ita,
+                }
+            }
         return loss_mlm, loss_ita, loss_itm  
-
-        
 
     @torch.no_grad()    
     def copy_params(self):
