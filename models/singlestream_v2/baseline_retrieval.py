@@ -88,6 +88,11 @@ class ALBEF(nn.Module):
         self.image_queue = nn.functional.normalize(self.image_queue, dim=0)
         self.text_queue = nn.functional.normalize(self.text_queue, dim=0)
 
+        if config.get('freeze_visual_encoder', False):
+            import ipdb; ipdb.set_trace()
+            for param in self.visual_encoder.parameters():
+                param.requires_grad = False
+
 
 
     def forward(self, image, text, alpha, idx):
