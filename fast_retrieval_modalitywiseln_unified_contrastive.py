@@ -71,7 +71,7 @@ def evaluation(model, data_loader, tokenizer, device, config):
             inputs_embeds=image_feat,
             attention_mask=image_atts,
             return_dict=True,
-            mode='text'
+            mode='image'
         ).last_hidden_state
         image_embed = model.vision_proj(image_feat[:,0,:])            
         image_embed = F.normalize(image_embed,dim=-1)      
@@ -340,6 +340,7 @@ if __name__ == '__main__':
         config = hydra.compose(config_name=args.config, overrides=args.overrides)
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+        
     yaml.dump(OmegaConf.to_object(config), open(os.path.join(args.output_dir, 'config.yaml'), 'w'))    
     
     main(args, config)

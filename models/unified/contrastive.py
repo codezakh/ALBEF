@@ -9,6 +9,7 @@ from functools import partial
 from multiprocessing.sharedctypes import Value
 from models.vit import VisionTransformer, interpolate_pos_embed
 from models.med import BertConfig, BertForMaskedLM
+# from models.modality_wise_ln_med import BertConfig, BertForMaskedLM
 from enum import Enum
 from omegaconf import OmegaConf
 
@@ -102,7 +103,7 @@ class VisionLanguageLearner(nn.Module):
                         inputs_embeds=image_embeds, 
                         attention_mask=image_atts,
                         return_dict=True,
-                        mode='text'
+                        mode='image'
                     )
         image_embeds = image_embeds.last_hidden_state
         image_feat = F.normalize(self.vision_proj(image_embeds[:,0,:]),dim=-1)  
@@ -121,7 +122,7 @@ class VisionLanguageLearner(nn.Module):
                         inputs_embeds=image_embeds_m, 
                         attention_mask=image_atts,
                         return_dict=True,
-                        mode='text'
+                        mode='image'
                     )
             image_embeds_m = image_embeds_m.last_hidden_state
             image_feat_m = F.normalize(self.vision_proj_m(image_embeds_m[:,0,:]),dim=-1)  
@@ -184,7 +185,7 @@ class VisionLanguageLearner(nn.Module):
                         inputs_embeds=post_mask_image_embeds, 
                         attention_mask=image_atts,
                         return_dict=True,
-                        mode='text'
+                        mode='image'
                     )
         # Drop the CLS token, because we don't mask it.
         post_mask_cross_embeds = post_mask_cross_embeds.last_hidden_state[:, 1:]
