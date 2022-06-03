@@ -89,7 +89,6 @@ class ALBEF(nn.Module):
         self.text_queue = nn.functional.normalize(self.text_queue, dim=0)
 
         if config.get('freeze_visual_encoder', False):
-            import ipdb; ipdb.set_trace()
             for param in self.visual_encoder.parameters():
                 param.requires_grad = False
 
